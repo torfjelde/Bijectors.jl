@@ -1,4 +1,3 @@
-using Revise
 using Test
 using Bijectors
 using Random
@@ -106,6 +105,30 @@ Random.seed!(123)
 
         cb = b1 ∘ b2
         @test cb(x) ≈ b1(b2(x))
+
+        # contrived example
+        b = bijector(d)
+        cb = inv(b) ∘ b
+        cb = cb ∘ cb
+        @test transform(cb ∘ cb ∘ cb ∘ cb ∘ cb, x) ≈ x        
+    end
+
+    @testset "Stacked" begin
+        # `logabsdetjac` without AD
+        d = Beta()
+        b = bijector(d)
+        x = rand(d)
+        y = b(x)
+        sb = vcat(b, b, inv(b), inv(b))
+        @test logabsdetjac(sb, [x, x, y, y]) ≈ 0.0
+
+        # `logabsdetjac` with AD
+        b = DistributionBijector(d)
+        y = b(x)
+        sb1 = vcat(b, b, inv(b), inv(b))             # <= tuple
+        sb2 = Stacked([b, b, inv(b), inv(b)])        # <= Array
+        @test logabsdetjac(sb1, [x, x, y, y]) ≈ 0.0
+        @test logabsdetjac(sb2, [x, x, y, y]) ≈ 0.0
     end
 
     @testset "Example: ADVI" begin
@@ -115,6 +138,6 @@ Random.seed!(123)
         ib = inv(b)                    # ℝ → [0, 1]
         td = transformed(Normal(), ib) # x ∼ 𝓝(0, 1) then f(x) ∈ [0, 1]
         x = rand(td)                   # ∈ [0, 1]
-        @test 0 ≤ x ≤ 1                      # => true
+        @test 0 ≤ x ≤ 1
     end
 end
