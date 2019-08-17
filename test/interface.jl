@@ -43,12 +43,12 @@ Random.seed!(123)
 
             # single sample
             y = rand(td)
-            x = transform(inv(td.transform), y)
+            x = inv(td.transform)(y)
             @test logpdf(td, y) ≈ logpdf_with_trans(dist, x, true)
 
             # multi-sample
             y = rand(td, 10)
-            x = transform.(inv(td.transform), y)
+            x = inv(td.transform).(y)
             @test logpdf.(td, y) ≈ logpdf_with_trans.(dist, x, true)
         end
 
@@ -59,7 +59,7 @@ Random.seed!(123)
             @test abs(det(Bijectors.jacobian(b, x))) > 0
             @test logabsdetjac(b, x) ≠ Inf
 
-            y = transform(b, x)
+            y = b(x)
             b⁻¹ = inv(b)
             @test abs(det(Bijectors.jacobian(b⁻¹, y))) > 0
             @test logabsdetjac(b⁻¹, y) ≠ Inf
@@ -72,7 +72,7 @@ Random.seed!(123)
             @test abs(det(Bijectors.jacobian(b, x))) > 0
             @test logabsdetjac(b, x) ≠ Inf
 
-            y = transform(b, x)
+            y = b(x)
             b⁻¹ = inv(b)
             @test abs(det(Bijectors.jacobian(b⁻¹, y))) > 0
             @test logabsdetjac(b⁻¹, y) ≠ Inf
@@ -84,7 +84,7 @@ Random.seed!(123)
         td = transformed(d)
 
         x = rand(d)
-        y = transform(td.transform, x)
+        y = td.transform(x)
 
         b = Bijectors.compose(td.transform, Bijectors.Identity())
         ib = inv(b)
@@ -94,10 +94,10 @@ Random.seed!(123)
 
         # inverse works fine for composition
         cb = b ∘ ib
-        @test transform(cb, x) ≈ x
+        @test cb(x) ≈ x
 
         cb2 = cb ∘ cb
-        @test transform(cb, x) ≈ x
+        @test cb(x) ≈ x
 
         # order of composed evaluation
         b1 = DistributionBijector(d)
@@ -110,7 +110,7 @@ Random.seed!(123)
         b = bijector(d)
         cb = inv(b) ∘ b
         cb = cb ∘ cb
-        @test transform(cb ∘ cb ∘ cb ∘ cb ∘ cb, x) ≈ x        
+        @test (cb ∘ cb ∘ cb ∘ cb ∘ cb)(x) ≈ x
     end
 
     @testset "Stacked" begin
@@ -129,6 +129,27 @@ Random.seed!(123)
         sb2 = Stacked([b, b, inv(b), inv(b)])        # <= Array
         @test logabsdetjac(sb1, [x, x, y, y]) ≈ 0.0
         @test logabsdetjac(sb2, [x, x, y, y]) ≈ 0.0
+
+        @testset "Stacked: ADVI with MvNormal" begin
+            # MvNormal test
+            d = MvNormal(zeros(10), ones(10))
+            dists = [
+                Beta(),
+                Beta(),
+                Beta(),
+                InverseGamma(),
+                InverseGamma(),
+                Gamma(),
+                Gamma(),
+                InverseGamma(),
+                Cauchy(),
+                Gamma()
+            ]
+            bs = bijector.(dists)    # constrained-to-unconstrained bijectors for dists
+            ibs = inv.(bs)           # invert, so we get unconstrained-to-constrained
+            sb = vcat(ibs...)        # => Stacked <: Bijector
+            td = transformed(d, sb)  # => MultivariateTransformed <: Distribution{Multivariate, Continuous}
+        end
     end
 
     @testset "Example: ADVI" begin
@@ -141,3 +162,118 @@ Random.seed!(123)
         @test 0 ≤ x ≤ 1
     end
 end
+
+# d = Beta()
+# td = transformed(d)
+# x = rand(d)
+# y = rand(td)
+# b = bijector(d)
+# cb = inv(b) ∘ b
+# cb = cb ∘ cb
+
+# @code_warntype transform(cb ∘ cb ∘ cb ∘ cb ∘ cb, x)
+
+# @test transform(cb ∘ cb ∘ cb ∘ cb ∘ cb, x) ≈ x
+
+# @code_warntype transform(inv(b) ∘ b, x)
+
+# # Test logabsdetjac for composed
+# @which logabsdetjac(cb, x)
+# forward(cb, x)
+# forward(b, x)
+
+# forward(inv(b) ∘ inv(b), y)
+
+
+# cb = inv(b) ∘ inv(b)
+# cb = cb ∘ cb ∘ cb ∘ b
+# @code_warntype logabsdetjac(cb, x)
+
+# logabsdetjac(b, x)
+
+# cb(x)
+
+
+
+# b((cb ∘ cb ∘ cb)(x))
+
+# @code_warntype forward(cb, x)
+# @code_warntype transform(cb, x)
+# @code_warntype logabsdetjac(cb, x)
+
+# # Testing the Stacked
+# sb = vcat(b, b, inv(b), b)
+# transform(sb, [x, x, y, x])
+# @code_warntype transform(sb, [x, x, y, x])
+# @which transform(sb, [x, x, y, x])
+
+# bs = [b, b, inv(b), b]
+# sb = Bijectors.Stacked(bs, NTuple{length(bs), UnitRange{Int}}([i:i for i = 1:length(bs)]))
+# # @code_warntype transform(sb, [x, x, y, x])
+
+# using BenchmarkTools
+# @btime transform(sb, [x, x, y, x])
+
+# sb = vcat(b, b, inv(b), b)
+# @which transform(sb, [x, x, y, x])
+# @btime transform(sb, [x, x, y, x])
+
+# @code_warntype transform(sb, [x, x, y, x])
+
+# using LinearAlgebra
+
+# b = bijector(Gamma())
+# Bijectors.jacobian(b, [x])
+
+
+# d = Beta()
+# b = DistributionBijector(d)
+# x = rand(d)
+# y = b(x)
+# sb = vcat(b, b, inv(b), inv(b))
+# logabsdetjac(sb, [x, x, y, y]) ≈ 0.0
+
+# # MvNormal test
+# d = MvNormal(zeros(10), ones(10))
+# dists = [
+#     Beta(),
+#     Beta(),
+#     Beta(),
+#     InverseGamma(),
+#     InverseGamma(),
+#     Gamma(),
+#     Gamma(),
+#     InverseGamma(),
+#     Cauchy(),
+#     Gamma()
+# ]
+# bs = bijector.(dists)    # constrained-to-unconstrained bijectors for dists
+# ibs = inv.(bs)           # invert, so we get unconstrained-to-constrained
+# sb = vcat(ibs...)        # => Stacked <: Bijector
+# td = transformed(d, sb)  # => MultivariateTransformed <: Distribution{Multivariate, Continuous}
+
+# x = rand(td)
+# logpdf(td, x)
+
+# @test entropy(d) ≈ entropy(td)
+
+# logabsdetjac(d, x)
+# logabsdetjac(td, x)
+
+# μ, σs = params(td)
+# μ
+# σs.diag
+
+
+# q = td
+# z = rand(q)
+# logabsdetjac(q, z)
+# entropy(q)
+
+
+# q_new = update(q, (μ, exp.(ones(10))))
+
+# logpdf(q_new, x), logpdf(q, x)
+# entropy(q_new), entropy(q)
+
+# inv(sb)(x)
