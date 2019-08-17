@@ -45,6 +45,7 @@ abstract type ADBijector{AD} <: Bijector end
 
 """
     inv(b::Bijector)
+    Inversed(b::Bijector)
 
 A `Bijector` representing the inverse transform of `b`.
 """
@@ -54,11 +55,28 @@ end
 
 Broadcast.broadcastable(b::Bijector) = Ref(b)
 
-"Computes the log(abs(det(J(x)))) where J is the jacobian of the transform."
+"""
+    logabsdetjac(b::Bijector, x)
+    logabsdetjac(ib::Inversed{<: Bijector}, y)
+
+Computes the log(abs(det(J(x)))) where J is the jacobian of the transform.
+Similarily for the inverse-transform.
+"""
 logabsdetjac(b::T1, y::T2) where {T<:Bijector,T1<:Inversed{T},T2} = 
     error("`logabsdetjac(b::$T1, y::$T2)` is not implemented.")
 
-"Computes both `transform` and `logabsdetjac` in one forward pass."
+"""
+    forward(b::Bijector, x)
+    forward(ib::Inversed{<: Bijector}, y)
+
+Computes both `transform` and `logabsdetjac` in one forward pass, and
+returns a named tuple `(rv=b(x), logabsdetjac=logabsdetjac(b, x))`.
+
+This defaults to the call above, but often one can re-use computation
+in the computation of the forward pass and the computation of the
+`logabsdetjac`. `forward` allows the user to take advantange of such
+efficiencies, if they exist.
+"""
 forward(b::T1, y::T2) where {T<:Bijector,T1<:Inversed{T},T2} = 
     error("`forward(b::$T1, y::$T2)` is not implemented.")
 
@@ -102,7 +120,6 @@ function jacobian(b::Inversed{<: ADBijector{<: TrackerAD}}, y::AbstractVector{<:
 end
 
 # TODO: allow batch-computation, especially for univariate case?
-"Computes the absolute determinant of the Jacobian of the inverse-transformation."
 logabsdetjac(b::ADBijector, x::Real) = log(abs(jacobian(b, x)))
 # logabsdetjac(b::ADBijector, x::AbstractVector{<:Real}) = logabsdet(jacobian(b, x))[1]
 function logabsdetjac(b::ADBijector, x::AbstractVector{<:Real})
@@ -110,16 +127,40 @@ function logabsdetjac(b::ADBijector, x::AbstractVector{<:Real})
     return issuccess(fact) ? log(abs(det(fact))) : -Inf # TODO: or smallest possible float?
 end
 
-logabsdetjacinv(b::Inversed{<: Bijector}, y) = - logabsdetjac(b.orig, b(y))
+"""
+    logabsdetjacinv(b::Bijector, x)
+
+Just an alias for `logabsdetjac(inv(b), b(x))`.
+"""
+logabsdetjacinv(b::Bijector, x) = logabsdetjac(inv(b), b(x))
 
 ###############
 # Composition #
 ###############
 
+"""
+    ∘(b1::Bijector, b2::Bijector)
+    compose(ts::Bijector...)
+
+A `Bijector` representing composition of bijectors.
+
+# Examples
+It's important to note that `∘` does what is expected mathematically, which means that the
+bijectors are applied to the input right-to-left, e.g. first applying `b2` and then `b1`:
+```
+(b1 ∘ b2)(x) == b1(b2(x))     # => true
+```
+But in the `Composed` struct itself, we store the bijectors left-to-right, so that
+```
+cb1 = b1 ∘ b2                  # => Composed.ts == [b2, b1]
+cb2 = compose(b2, b1)
+cb1(x) == cb2(x) == b1(b2(x))  # => true
+```
+"""
 struct Composed{A} <: Bijector
     ts::A
 end
-compose(ts...) = Composed(ts)
+compose(ts::Bijector...) = Composed(ts)
 
 # The transformation of `Composed` applies functions left-to-right
 # but in mathematics we usually go from right-to-left; this reversal ensures that
@@ -168,6 +209,22 @@ logabsdetjac(cb::Composed, x) = _logabsdetjac(x, cb.ts...)
 ###########
 # Stacked #
 ###########
+"""
+    Stacked(bs)
+    Stacked(bs, ranges)
+    vcat(bs::Bijector...)
+
+A `Bijector` which stacks bijectors together which can then be applied to a vector
+where `bs[i]::Bijector` is applied to `x[ranges[i]]`.
+
+# Examples
+```
+b1 = Logistic(0.0, 1.0)
+b2 = Identity()
+b = vcat(b1, b2)
+b([0.0, 1.0]) == [b1(0.0), 1.0]  # => true
+```
+"""
 struct Stacked{B, N} <: Bijector where N
     bs::B
     ranges::NTuple{N, UnitRange{Int}}
@@ -258,6 +315,15 @@ logabsdetjac(b::Shift{T}, x) where T <: Real = zero(T)
 #######################################################
 # Constrained to unconstrained distribution bijectors #
 #######################################################
+"""
+    DistributionBijector(d::Distribution)
+    DistributionBijector{<: ADBackend, D}(d::Distribution)
+
+This is the default `Bijector` for a distribution. 
+
+It uses `link` and `invlink` to compute the transformations, and `AD` to compute
+the `jacobian` and `logabsdetjac`.
+"""
 struct DistributionBijector{AD, D} <: ADBijector{AD} where D <: Distribution
     dist::D
 end
@@ -269,7 +335,11 @@ end
 (b::DistributionBijector)(x) = link(b.dist, x)
 (ib::Inversed{<: DistributionBijector})(y) = invlink(ib.orig.dist, y)
 
-"Returns the constrained-to-unconstrained bijector for distribution `d`."
+"""
+    bijector(d::Distribution)
+
+Returns the constrained-to-unconstrained bijector for distribution `d`.
+"""
 bijector(d::Distribution) = DistributionBijector(d)
 
 # Transformed distributions
@@ -286,9 +356,16 @@ end
 const Transformed = Union{UnivariateTransformed, MultivariateTransformed}
 
 # Can implement these on a case-by-case basis
+"""
+    transformed(d::Distribution)
+    transformed(d::Distribution, b::Bijector)
+
+Couples the distribution `d` with the bijector `b` by returning a `UnivariateTransformed`
+or `MultivariateTransformed`, depending on type `D`.
+"""
 transformed(d::UnivariateDistribution, b::Bijector) = UnivariateTransformed(d, b)
 transformed(d::MultivariateDistribution, b::Bijector) = MultivariateTransformed(d, b)
-transformed(d) = transformed(d, bijector(d))
+transformed(d::Distribution) = transformed(d, bijector(d))
 
 # can specialize further by
 bijector(d::Normal) = IdentityBijector
@@ -348,11 +425,57 @@ logabsdetjac(d::MultivariateDistribution, x::AbstractVector{T}) where T <: Real 
 # for transformed distributions the `y` is going to be the transformed variable
 # and so we use the inverse transform to get what we want
 # TODO: should this be renamed to `logabsdetinvjac`?
+"""
+    logabsdetjac(td::UnivariateTransformed, y::Real)
+    logabsdetjac(td::MultivariateTransformed, y::AbstractVector{<:Real})
+
+Computes the `logabsdetjac` of the _inverse_ transformation, since `rand(td)` returns
+the _transformed_ random variable.
+"""
 logabsdetjac(td::UnivariateTransformed, y::Real) = logabsdetjac(inv(td.transform), y)
 logabsdetjac(td::MultivariateTransformed, y::AbstractVector{<:Real}) = logabsdetjac(inv(td.transform), y)
 
 # updating params of distributions
 # TODO: should go somewhere else
+"""
+    update(d::D, θ)
+
+Takes a distribution `d::Distribution` and parameters `θ` and returns a new distribution of
+same UnionAll type but potentially parameterized by a different type. 
+
+# Examples
+This is very useful for
+cases where one has a distribution parameterized by `Float64` and want to use AD to differentate,
+say, the `logpdf` wrt. parameters of the distribution:
+```julia-repl
+julia> using Distributions, ForwardDiff
+
+julia> # WRONG!
+       grad(d::D, θ, x) where D <: Distribution = ForwardDiff.gradient(z -> logpdf(D(z...), x), θ)
+grad (generic function with 1 method)
+
+julia> d = Normal()
+Normal{Float64}(μ=0.0, σ=1.0)
+
+julia> grad(d, [1.0, 1.0], 0.0)
+ERROR: MethodError: no method matching Float64(::ForwardDiff.Dual{ForwardDiff.Tag{getfield(Main, Symbol("##22#23")){Normal{Float64},Float64},Float64},Float64,2})
+Closest candidates are:
+  Float64(::Real, ::RoundingMode) where T<:AbstractFloat at rounding.jl:185
+  Float64(::T<:Number) where T<:Number at boot.jl:725
+  Float64(::Int8) at float.jl:60
+  ...
+
+julia> # WORKS!
+       grad(d::Distribution, θ, x)= ForwardDiff.gradient(z -> logpdf(update(d, z), x), θ)
+grad (generic function with 1 method)
+
+julia> grad(d, [1.0, 1.0], 0.0)
+2-element Array{Float64,1}:
+ -1.0
+  0.0
+```
+
+"""
 @generated function update(d::D, θ) where D <: Distribution
     return :($(nameof(D))(θ...))
 end
