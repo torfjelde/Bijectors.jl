@@ -28,8 +28,10 @@ export  TransformDistribution,
         DistributionBijector,
         bijector,
         transformed,
+        TransformedDistribution,
         UnivariateTransformed,
-        MultivariateTransformed
+        MultivariateTransformed,
+        update
 
 const DEBUG = Bool(parse(Int, get(ENV, "DEBUG_BIJECTORS", "0")))
 

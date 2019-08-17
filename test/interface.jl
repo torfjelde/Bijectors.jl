@@ -79,7 +79,7 @@ Random.seed!(123)
         end
     end
 
-    @testset "Composition" begin
+    @testset "Composition <: Bijector" begin
         d = Beta()
         td = transformed(d)
 
@@ -113,7 +113,7 @@ Random.seed!(123)
         @test (cb ∘ cb ∘ cb ∘ cb ∘ cb)(x) ≈ x
     end
 
-    @testset "Stacked" begin
+    @testset "Stacked <: Bijector" begin
         # `logabsdetjac` without AD
         d = Beta()
         b = bijector(d)
@@ -148,11 +148,28 @@ Random.seed!(123)
             bs = bijector.(dists)    # constrained-to-unconstrained bijectors for dists
             ibs = inv.(bs)           # invert, so we get unconstrained-to-constrained
             sb = vcat(ibs...)        # => Stacked <: Bijector
+            @test sb isa Stacked
             td = transformed(d, sb)  # => MultivariateTransformed <: Distribution{Multivariate, Continuous}
+
+            @test td isa Distribution{Multivariate, Continuous}
         end
     end
 
-    @testset "Example: ADVI" begin
+    @testset "Update" begin
+        dists = [Normal(), Gamma()]
+        for d in dists
+            td = transformed(d)
+
+            θ = (1.0, 1.0)
+
+            td = update(td, θ)
+
+            @test params(td.dist) == θ
+            @test params(td) == θ
+        end
+    end
+
+    @testset "Example: ADVI single" begin
         # Usage in ADVI
         d = Beta()
         b = DistributionBijector(d)    # [0, 1] → ℝ

@@ -343,16 +343,17 @@ Returns the constrained-to-unconstrained bijector for distribution `d`.
 bijector(d::Distribution) = DistributionBijector(d)
 
 # Transformed distributions
-struct UnivariateTransformed{D, B} <: Distribution{Univariate, Continuous} where {D <: UnivariateDistribution, B <: Bijector}
+struct TransformedDistribution{D, B, V} <: Distribution{V, Continuous} where {D <: Distribution{V, Continuous}, B <: Bijector}
     dist::D
     transform::B
 end
-
-struct MultivariateTransformed{D, B} <: Distribution{Multivariate, Continuous} where {D <: MultivariateDistribution, B <: Bijector}
-    dist::D
-    transform::B
+function TransformedDistribution(d::Distribution{V, Continuous}, b::B) where {V <: VariateForm, B <: Bijector}
+    return TransformedDistribution{typeof(d), B, V}(d, b)
 end
 
+
+const UnivariateTransformed = TransformedDistribution{<: Distribution, <: Bijector, Univariate}
+const MultivariateTransformed = TransformedDistribution{<: Distribution, <: Bijector, Multivariate}
 const Transformed = Union{UnivariateTransformed, MultivariateTransformed}
 
 # Can implement these on a case-by-case basis
@@ -362,9 +363,11 @@ const Transformed = Union{UnivariateTransformed, MultivariateTransformed}
 
 Couples the distribution `d` with the bijector `b` by returning a `UnivariateTransformed`
 or `MultivariateTransformed`, depending on type `D`.
+
+The resulting distribution will sample `x` from `d` and return `b(x)`.
+The `logpdf` will be 
 """
-transformed(d::UnivariateDistribution, b::Bijector) = UnivariateTransformed(d, b)
-transformed(d::MultivariateDistribution, b::Bijector) = MultivariateTransformed(d, b)
+transformed(d::Distribution, b::Bijector) = TransformedDistribution(d, b)
 transformed(d::Distribution) = transformed(d, bijector(d))
 
 # can specialize further by
@@ -480,10 +483,6 @@ julia> grad(d, [1.0, 1.0], 0.0)
     return :($(nameof(D))(θ...))
 end
 
-function update(d::UnivariateTransformed, θ)
-    return UnivariateTransformed(update(d.dist, θ), d.transform)
-end
-
-function update(d::MultivariateTransformed, θ)
-    return MultivariateTransformed(update(d.dist, θ), d.transform)
+function update(d::TransformedDistribution{D, B, V}, θ) where {V, D <: Distribution{V, Continuous}, B <: Bijector}
+    return TransformedDistribution(update(d.dist, θ), d.transform)
 end
