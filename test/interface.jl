@@ -149,9 +149,20 @@ Random.seed!(123)
             ibs = inv.(bs)           # invert, so we get unconstrained-to-constrained
             sb = vcat(ibs...)        # => Stacked <: Bijector
             @test sb isa Stacked
-            td = transformed(d, sb)  # => MultivariateTransformed <: Distribution{Multivariate, Continuous}
 
+            td = transformed(d, sb)  # => MultivariateTransformed <: Distribution{Multivariate, Continuous}
             @test td isa Distribution{Multivariate, Continuous}
+
+            y = rand(td)
+
+            bs = bijector.(tuple(dists...))
+            ibs = inv.(bs)
+            sb = vcat(ibs...)
+            @test sb isa Stacked{<: Tuple}
+
+            y = rand(td)
+
+            # TODO: add AD tests
         end
     end
 

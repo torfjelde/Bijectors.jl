@@ -236,30 +236,18 @@ Base.vcat(bs::Bijector...) = Stacked(bs)
 
 inv(sb::Stacked) = Stacked(inv.(sb.bs))
 
-function (sb::Stacked{<: AbstractArray{<: Bijector}})(x)
-    res = similar(x)
-    for (i, r) in enumerate(sb.ranges)
-        if length(r) == 1
-            res[r] .= sb.bs[i](x[r[1]])
-        else
-            res[r] .= sb.bs[i](x[r])
-        end
-    end
-
-    return res
-end
-
-
+# TODO: Is there a better approach to this?
 @generated function _transform(x, rs::NTuple{N, UnitRange{Int}}, bs::Bijector...) where N
     exprs = []
     for i = 1:N
-        push!(exprs, :((bs[$i])(length(rs[$i]) == 1 ? x[rs[$i][1]] : x[rs[$i]])))
+        push!(exprs, :(bs[$i](x[rs[$i]])))
     end
 
-    return :(vcat($(exprs...), ))
+    return :(vcat($(exprs...)))
 end
+_transform(x, rs::NTuple{1, UnitRange{Int}}, b::Bijector) = b(x)
 
-(sb::Stacked{<: Tuple})(x) = _transform(x, sb.ranges, sb.bs...)
+(sb::Stacked)(x) = _transform(x, sb.ranges, sb.bs...)
 
 # TODO: implement jacobian using matrices with BlockDiagonal.jl
 # jacobian(sb::Stacked, x) = BDiagonal([jacobian(sb.bs[i], x[sb.ranges[i]]) for i = 1:length(sb.ranges)])
@@ -267,7 +255,7 @@ function logabsdetjac(sb::Stacked, x::AbstractArray{<: Real})
     # We also sum each of the `logabsdetjac()` calls because in the case we're `x`
     # is a vector, since we're using ranges to index we get back a vector.
     # In this case, 1D bijectors will act elementwise and return a vector of equal length.
-    # TODO: Don't do this? Would be nice to be able to batch things, right?
+    # TODO: Don't do this double-sum? Would be nice to be able to batch things, right?
     return sum([sum(logabsdetjac(sb.bs[i], x[sb.ranges[i]])) for i = 1:length(sb.ranges)])
 end
 
@@ -372,6 +360,7 @@ transformed(d::Distribution) = transformed(d, bijector(d))
 
 # can specialize further by
 bijector(d::Normal) = IdentityBijector
+bijector(d::MvNormal) = IdentityBijector
 bijector(d::Beta{T}) where T <: Real = Logit(zero(T), one(T))
 
 ##############################
