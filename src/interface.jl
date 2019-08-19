@@ -56,16 +56,6 @@ end
 Broadcast.broadcastable(b::Bijector) = Ref(b)
 
 """
-    logabsdetjac(b::Bijector, x)
-    logabsdetjac(ib::Inversed{<: Bijector}, y)
-
-Computes the log(abs(det(J(x)))) where J is the jacobian of the transform.
-Similarily for the inverse-transform.
-"""
-logabsdetjac(b::T1, y::T2) where {T<:Bijector,T1<:Inversed{T},T2} = 
-    error("`logabsdetjac(b::$T1, y::$T2)` is not implemented.")
-
-"""
     forward(b::Bijector, x)
     forward(ib::Inversed{<: Bijector}, y)
 
@@ -77,15 +67,16 @@ in the computation of the forward pass and the computation of the
 `logabsdetjac`. `forward` allows the user to take advantange of such
 efficiencies, if they exist.
 """
-forward(b::T1, y::T2) where {T<:Bijector,T1<:Inversed{T},T2} = 
-    error("`forward(b::$T1, y::$T2)` is not implemented.")
-
-# default `forward` implementations; should in general implement efficient way
-# of computing both `transform` and `logabsdetjac` together.
 forward(b::Bijector, x) = (rv=b(x), logabsdetjac=logabsdetjac(b, x))
 forward(ib::Inversed{<: Bijector}, y) = (rv=ib(y), logabsdetjac=logabsdetjac(ib, y))
 
-# defaults implementation for inverses
+"""
+    logabsdetjac(b::Bijector, x)
+    logabsdetjac(ib::Inversed{<: Bijector}, y)
+
+Computes the log(abs(det(J(x)))) where J is the jacobian of the transform.
+Similarily for the inverse-transform.
+"""
 logabsdetjac(ib::Inversed{<: Bijector}, y) = - logabsdetjac(ib.orig, ib(y))
 
 inv(b::Bijector) = Inversed(b)
