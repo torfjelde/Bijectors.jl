@@ -173,7 +173,7 @@ Random.seed!(123)
 
             θ = (1.0, 1.0)
 
-            td = update(td, θ)
+            td = update(td, θ...)
 
             @test params(td.dist) == θ
             @test params(td) == θ

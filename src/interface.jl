@@ -459,10 +459,10 @@ julia> grad(d, [1.0, 1.0], 0.0)
 ```
 
 """
-@generated function update(d::D, θ) where D <: Distribution
+@generated function update(d::D, θ...) where D <: Distribution
     return :($(nameof(D))(θ...))
 end
 
-function update(d::TransformedDistribution{D, B, V}, θ) where {V, D <: Distribution{V, Continuous}, B <: Bijector}
-    return TransformedDistribution(update(d.dist, θ), d.transform)
+function update(d::TransformedDistribution{D, B, V}, θ...) where {V, D <: Distribution{V, Continuous}, B <: Bijector}
+    return TransformedDistribution(update(d.dist, θ...), d.transform)
 end
