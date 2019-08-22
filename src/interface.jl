@@ -40,6 +40,8 @@ end
 "Abstract type for a `Bijector`."
 abstract type Bijector end
 
+Broadcast.broadcastable(b::Bijector) = Ref(b)
+
 "Abstract type for a `Bijector` making use of auto-differentation (AD)."
 abstract type ADBijector{AD} <: Bijector end
 
@@ -53,7 +55,20 @@ struct Inversed{B <: Bijector} <: Bijector
     orig::B
 end
 
-Broadcast.broadcastable(b::Bijector) = Ref(b)
+inv(b::Bijector) = Inversed(b)
+inv(ib::Inversed{<:Bijector}) = ib.orig
+
+"""
+    logabsdetjac(b::Bijector, x)
+    logabsdetjac(ib::Inversed{<: Bijector}, y)
+
+Computes the log(abs(det(J(x)))) where J is the jacobian of the transform.
+Similarily for the inverse-transform.
+
+Default implementation for `Inversed{<: Bijector}` is implemented as
+`- logabsdetjac` of original `Bijector`.
+"""
+logabsdetjac(ib::Inversed{<: Bijector}, y) = - logabsdetjac(ib.orig, ib(y))
 
 """
     forward(b::Bijector, x)
@@ -68,45 +83,38 @@ in the computation of the forward pass and the computation of the
 efficiencies, if they exist.
 """
 forward(b::Bijector, x) = (rv=b(x), logabsdetjac=logabsdetjac(b, x))
-forward(ib::Inversed{<: Bijector}, y) = (rv=ib(y), logabsdetjac=logabsdetjac(ib, y))
+forward(ib::Inversed{<: Bijector}, y) = (
+    rv=ib(y),
+    logabsdetjac=logabsdetjac(ib, y)
+)
 
-"""
-    logabsdetjac(b::Bijector, x)
-    logabsdetjac(ib::Inversed{<: Bijector}, y)
-
-Computes the log(abs(det(J(x)))) where J is the jacobian of the transform.
-Similarily for the inverse-transform.
-"""
-logabsdetjac(ib::Inversed{<: Bijector}, y) = - logabsdetjac(ib.orig, ib(y))
-
-inv(b::Bijector) = Inversed(b)
-inv(ib::Inversed{<:Bijector}) = ib.orig
 
 # AD implementations
-function jacobian(b::ADBijector{<: ForwardDiffAD}, y::Real)
-    return ForwardDiff.derivative(b, y)
-end
-function jacobian(b::ADBijector{<: ForwardDiffAD}, y::AbstractVector{<: Real})
-    return ForwardDiff.jacobian(b, y)
+function jacobian(b::ADBijector{<: ForwardDiffAD}, x::Real)
+    return ForwardDiff.derivative(b, x)
 end
 function jacobian(b::Inversed{<: ADBijector{<: ForwardDiffAD}}, y::Real)
     return ForwardDiff.derivative(b, y)
+end
+function jacobian(b::ADBijector{<: ForwardDiffAD}, x::AbstractVector{<: Real})
+    return ForwardDiff.jacobian(b, x)
 end
 function jacobian(b::Inversed{<: ADBijector{<: ForwardDiffAD}}, y::AbstractVector{<: Real})
     return ForwardDiff.jacobian(b, y)
 end
 
-function jacobian(b::ADBijector{<: TrackerAD}, y::Real)
-    return Tracker.gradient(b, y)[1]
-end
-function jacobian(b::ADBijector{<: TrackerAD}, y::AbstractVector{<: Real})
-    # we extract `data` so that we don't returne a `Tracked` type
-    return Tracker.data(Tracker.jacobian(b, y))
+function jacobian(b::ADBijector{<: TrackerAD}, x::Real)
+    return Tracker.gradient(b, x)[1]
 end
 function jacobian(b::Inversed{<: ADBijector{<: TrackerAD}}, y::Real)
     return Tracker.gradient(b, y)[1]
 end
+function jacobian(b::ADBijector{<: TrackerAD}, x::AbstractVector{<: Real})
+    # we extract `data` so that we don't returne a `Tracked` type
+    return Tracker.data(Tracker.jacobian(b, x))
+end
 function jacobian(b::Inversed{<: ADBijector{<: TrackerAD}}, y::AbstractVector{<: Real})
+    # we extract `data` so that we don't returne a `Tracked` type
     return Tracker.data(Tracker.jacobian(b, y))
 end
 
@@ -115,15 +123,15 @@ logabsdetjac(b::ADBijector, x::Real) = log(abs(jacobian(b, x)))
 # logabsdetjac(b::ADBijector, x::AbstractVector{<:Real}) = logabsdet(jacobian(b, x))[1]
 function logabsdetjac(b::ADBijector, x::AbstractVector{<:Real})
     fact = lu(jacobian(b, x), check=false)
-    return issuccess(fact) ? log(abs(det(fact))) : -Inf # TODO: or smallest possible float?
+    return issuccess(fact) ? log(abs(det(fact))) : -Inf # TODO: do this or not?
 end
 
 """
-    logabsdetjacinv(b::Bijector, x)
+    logabsdetjacinv(b::Bijector, y)
 
-Just an alias for `logabsdetjac(inv(b), b(x))`.
+Just an alias for `logabsdetjac(inv(b), y)`.
 """
-logabsdetjacinv(b::Bijector, x) = logabsdetjac(inv(b), b(x))
+logabsdetjacinv(b::Bijector, y) = logabsdetjac(inv(b), y)
 
 ###############
 # Composition #
@@ -151,6 +159,7 @@ cb1(x) == cb2(x) == b1(b2(x))  # => true
 struct Composed{A} <: Bijector
     ts::A
 end
+
 compose(ts::Bijector...) = Composed(ts)
 
 # The transformation of `Composed` applies functions left-to-right
@@ -175,6 +184,16 @@ end
 _transform(x, b1::Bijector, b2::Bijector) = b2(b1(x))
 _transform(x, b::Bijector, bs::Bijector...) = _transform(b(x), bs...)
 (cb::Composed{<: Tuple})(x) = _transform(x, cb.ts...)
+
+function _logabsdetjac(x, b1::Bijector, b2::Bijector)
+    res = forward(b1, x)
+    return logabsdetjac(b2, res.rv) + res.logabsdetjac
+end
+function _logabsdetjac(x, b1::Bijector, bs::Bijector...)
+    res = forward(b1, x)
+    return _logabsdetjac(res.rv, bs...) + res.logabsdetjac
+end
+logabsdetjac(cb::Composed, x) = _logabsdetjac(x, cb.ts...)
 
 # TODO: implement `forward` recursively
 function forward(cb::Composed, x)
@@ -262,7 +281,7 @@ struct Identity <: Bijector end
 forward(::Identity, x) = (rv=x, logabsdetjac=zero(x))
 
 logabsdetjac(::Identity, y::T) where T <: Real = zero(T)
-logabsdetjac(::Identity, y::AbstractVector{T}) where T <: Real = zero(T)
+logabsdetjac(::Identity, y::AbstractArray{T}) where T <: Real = zero(T)
 
 const IdentityBijector = Identity()
 
@@ -277,19 +296,175 @@ struct Logit{T<:Real} <: Bijector
 end
 
 (b::Logit)(x) = @. logit((x - b.a) / (b.b - b.a))
-(ib::Inversed{Logit{T}})(y) where T <: Real = @. (ib.orig.b - ib.orig.a) * logistic(y) + ib.orig.a
+(ib::Inversed{<: Logit{<: Real}})(y) = @. (ib.orig.b - ib.orig.a) * logistic(y) + ib.orig.a
 
-logabsdetjac(b::Logit{<:Real}, x) = @. log((x - b.a) * (b.b - x) / (b.b - b.a))
+logabsdetjac(b::Logit{<:Real}, x) = log((x - b.a) * (b.b - x) / (b.b - b.a))
 
-struct Shift{T <: Real} <: Bijector
-    val::T
+#############
+# Exp & Log #
+#############
+
+struct Exp <: Bijector end
+struct Log <: Bijector end
+const exp_b = Exp()
+const log_b = Log()
+
+(b::Log)(x) = @. log(x)
+(b::Exp)(y) = @. exp(y)
+
+inv(b::Log) = exp_b
+inv(b::Exp) = log_b
+
+logabsdetjac(b::Log, x) = log(x)
+logabsdetjac(b::Exp, y) = - y
+
+#################
+# Shift & Scale #
+#################
+struct Shift{T} <: Bijector
+    a::T
 end
 
-(b::Shift)(x) = @. x + b.val
-(b::Inversed{Shift{<: Real}})(y) = @. x - b.val
+(b::Shift)(x) = b.a + x
+inv(b::Shift) = Shift(-b.a)
+logabsdetjac(b::Shift, x::T) where T = zero(T)
 
-logabsdetjac(b::Shift{T}, x) where T <: Real = zero(T)
+struct Scale{T} <: Bijector
+    a::T
+end
 
+(b::Scale)(x) = b.a * x
+inv(b::Scale) = Scale(b.a^(-1))
+logabsdetjac(b::Scale, x) = log(abs(b.a))
+
+####################
+# Simplex bijector #
+####################
+struct SimplexBijector{T} <: Bijector where T end
+
+const simplex_b = SimplexBijector{Val{false}}()
+const simplex_b_proj = SimplexBijector{Val{true}}()
+
+function _clamp(x::T, b::SimplexBijector) where T
+    bounds = (zero(T), one(T))
+    clamped_x = clamp(x, bounds...)
+    DEBUG && @debug "x = $x, bounds = $bounds, clamped_x = $clamped_x"
+    return clamped_x
+end
+
+function (b::SimplexBijector{Val{proj}})(x::AbstractVector{T}) where {T, proj}
+    y, K = similar(x), length(x)
+
+    ϵ = _eps(T)
+    sum_tmp = zero(T)
+    @inbounds z = x[1] * (one(T) - 2ϵ) + ϵ # z ∈ [ϵ, 1-ϵ]
+    @inbounds y[1] = StatsFuns.logit(z) + log(T(K - 1))
+    @inbounds @simd for k in 2:(K - 1)
+        sum_tmp += x[k - 1]
+        # z ∈ [ϵ, 1-ϵ]
+        # x[k] = 0 && sum_tmp = 1 -> z ≈ 1
+        z = (x[k] + ϵ)*(one(T) - 2ϵ)/((one(T) + ϵ) - sum_tmp)
+        y[k] = StatsFuns.logit(z) + log(T(K - k))
+    end
+    @inbounds sum_tmp += x[K - 1]
+    @inbounds if proj
+        y[K] = zero(T)
+    else
+        y[K] = one(T) - sum_tmp - x[K]
+    end
+
+    return y
+end
+
+# Vectorised implementation of the above.
+function (b::SimplexBijector{Val{proj}})(X::AbstractMatrix{T}) where {T<:Real, proj}
+    Y, K, N = similar(X), size(X, 1), size(X, 2)
+
+    ϵ = _eps(T)
+    @inbounds @simd for n in 1:size(X, 2)
+        sum_tmp = zero(T)
+        z = X[1, n] * (one(T) - 2ϵ) + ϵ
+        Y[1, n] = StatsFuns.logit(z) + log(T(K - 1))
+        for k in 2:(K - 1)
+            sum_tmp += X[k - 1, n]
+            z = (X[k, n] + ϵ)*(one(T) - 2ϵ)/((one(T) + ϵ) - sum_tmp)
+            Y[k, n] = StatsFuns.logit(z) + log(T(K - k))
+        end
+        sum_tmp += X[K-1, n]
+        if proj
+            Y[K, n] = zero(T)
+        else
+            Y[K, n] = one(T) - sum_tmp - X[K, n]
+        end
+    end
+
+    return Y
+end
+
+function (ib::Inversed{<: SimplexBijector{Val{proj}}})(y::AbstractVector{T}) where {T, proj}
+    x, K = similar(y), length(y)
+
+    ϵ = _eps(T)
+    @inbounds z = StatsFuns.logistic(y[1] - log(T(K - 1)))
+    @inbounds x[1] = _clamp((z - ϵ) / (one(T) - 2ϵ), ib.orig)
+    sum_tmp = zero(T)
+    @inbounds @simd for k = 2:(K - 1)
+        z = StatsFuns.logistic(y[k] - log(T(K - k)))
+        sum_tmp += x[k-1]
+        x[k] = _clamp(((one(T) + ϵ) - sum_tmp) / (one(T) - 2ϵ) * z - ϵ, ib.orig)
+    end
+    @inbounds sum_tmp += x[K - 1]
+    @inbounds if proj
+        x[K] = _clamp(one(T) - sum_tmp, ib.orig)
+    else
+        x[K] = _clamp(one(T) - sum_tmp - y[K], ib.orig)
+    end
+    
+    return x
+end
+
+# Vectorised implementation of the above.
+function (ib::Inversed{<: SimplexBijector{Val{proj}}})(Y::AbstractMatrix{T}) where {T<:Real, proj}
+    X, K, N = similar(Y), size(Y, 1), size(Y, 2)
+
+    ϵ = _eps(T)
+    @inbounds @simd for n in 1:size(X, 2)
+        sum_tmp, z = zero(T), StatsFuns.logistic(Y[1, n] - log(T(K - 1)))
+        X[1, n] = _clamp((z - ϵ) / (one(T) - 2ϵ), ib.orig)
+        for k in 2:(K - 1)
+            z = StatsFuns.logistic(Y[k, n] - log(T(K - k)))
+            sum_tmp += X[k - 1]
+            X[k, n] = _clamp(((one(T) + ϵ) - sum_tmp) / (one(T) - 2ϵ) * z - ϵ, ib.orig)
+        end
+        sum_tmp += X[K - 1, n]
+        if proj
+            X[K, n] = _clamp(one(T) - sum_tmp, ib.orig)
+        else
+            X[K, n] = _clamp(one(T) - sum_tmp - Y[K, n], ib.orig)
+        end
+    end
+
+    return X
+end
+
+
+function logabsdetjac(b::SimplexBijector, x::AbstractVector{T}) where T
+    ϵ = _eps(T)
+    lp = zero(T)
+    
+    K = length(x)
+
+    sum_tmp = zero(eltype(x))
+    @inbounds z = x[1]
+    lp += log(z + ϵ) + log((one(T) + ϵ) - z)
+    @inbounds @simd for k in 2:(K - 1)
+        sum_tmp += x[k-1]
+        z = x[k] / ((one(T) + ϵ) - sum_tmp)
+        lp += log(z + ϵ) + log((one(T) + ϵ) - z) + log((one(T) + ϵ) - sum_tmp)
+    end
+
+    return lp
+end
 
 #######################################################
 # Constrained to unconstrained distribution bijectors #
@@ -314,6 +489,12 @@ end
 (b::DistributionBijector)(x) = link(b.dist, x)
 (ib::Inversed{<: DistributionBijector})(y) = invlink(ib.orig.dist, y)
 
+# HACK: he he he, we gottem' boys
+function logabsdetjac(b::B, x::AbstractVector{<:Real}) where {AD, B <: DistributionBijector{AD, <: Dirichlet}}
+    return logpdf_with_trans(b.dist, x, true) - logpdf_with_trans(b.dist, x, false)
+end
+
+
 """
     bijector(d::Distribution)
 
@@ -326,76 +507,183 @@ struct TransformedDistribution{D, B, V} <: Distribution{V, Continuous} where {D 
     dist::D
     transform::B
 end
-function TransformedDistribution(d::Distribution{V, Continuous}, b::B) where {V <: VariateForm, B <: Bijector}
-    return TransformedDistribution{typeof(d), B, V}(d, b)
+function TransformedDistribution(d::D, b::B) where {V <: VariateForm, B <: Bijector, D <: Distribution{V, Continuous}}
+    return TransformedDistribution{D, B, V}(d, b)
 end
 
 
 const UnivariateTransformed = TransformedDistribution{<: Distribution, <: Bijector, Univariate}
 const MultivariateTransformed = TransformedDistribution{<: Distribution, <: Bijector, Multivariate}
-const Transformed = Union{UnivariateTransformed, MultivariateTransformed}
+const MvTransformed = MultivariateTransformed
+const MatrixTransformed = TransformedDistribution{<: Distribution, <: Bijector, Matrixvariate}
+const Transformed = TransformedDistribution
 
-# Can implement these on a case-by-case basis
+
 """
     transformed(d::Distribution)
     transformed(d::Distribution, b::Bijector)
 
-Couples the distribution `d` with the bijector `b` by returning a `UnivariateTransformed`
-or `MultivariateTransformed`, depending on type `D`.
+Couples distribution `d` with the bijector `b` by returning a `TransformedDistribution`.
 
-The resulting distribution will sample `x` from `d` and return `b(x)`.
-The `logpdf` will be 
+If no bijector is provided, i.e. `transformed(d)` is called, then 
+`transformed(d, bijector(d))` is returned.
 """
 transformed(d::Distribution, b::Bijector) = TransformedDistribution(d, b)
-transformed(d::Distribution) = transformed(d, bijector(d))
+transformed(d) = transformed(d, bijector(d))
 
-# can specialize further by
+"""
+    bijector(d::Distribution)
+
+Returns the constrained-to-unconstrained bijector for distribution `d`.
+"""
 bijector(d::Normal) = IdentityBijector
 bijector(d::MvNormal) = IdentityBijector
-bijector(d::Beta{T}) where T <: Real = Logit(zero(T), one(T))
+bijector(d::PositiveDistribution) = log_b
+bijector(d::SimplexDistribution) = simplex_b_proj
+
+_union2tuple(T1::Type, T2::Type) = (T1, T2)
+_union2tuple(T1::Type, T2::Union) = (T1, _union2tuple(T2.a, T2.b)...)
+_union2tuple(T::Union) = _union2tuple(T.a, T.b)
+
+bijector(d::Kolmogorov) = Logit(zero(eltype(d)), zero(eltype(d)))
+for D in _union2tuple(UnitDistribution)[2:end]
+    # Skipping Kolmogorov because it's a DataType
+    @eval bijector(d::$D{T}) where T <: Real = Logit(zero(T), one(T))
+end
+
+# FIXME: Can we make this type-stable?
+# Everything but `Truncated` can probably be made type-stable
+# by explicit implementation. Can also make a `TruncatedBijector`
+# which has the same transform as the `link` function.
+# E.g. (b::Truncated)(x) = link(b.d, x) or smth
+function bijector(d::TransformDistribution) where D <: Distribution
+    a, b = minimum(d), maximum(d)
+    lowerbounded, upperbounded = isfinite(a), isfinite(b)
+    if lowerbounded && upperbounded
+        return Logit(a, b)
+    elseif lowerbounded
+        return (log_b ∘ Shift(- a))
+    elseif upperbounded
+        return (log_b ∘ Shift(b) ∘ Scale(- one(typeof(b))))
+    else
+        return IdentityBijector
+    end
+end
 
 ##############################
 # Distributions.jl interface #
 ##############################
 
 # size
-Base.length(td::MultivariateTransformed) = length(td.dist)
+Base.length(td::Transformed) = length(td.dist)
+Base.size(td::Transformed) = size(td.dist)
 
-# logp
 function logpdf(td::UnivariateTransformed, y::Real)
-    # logpdf(td.dist, transform(inv(td.transform), y)) .+ logabsdetjac(inv(td.transform), y)
-    logpdf_with_trans(td.dist, inv(td.transform)(y), true)
-end
-function _logpdf(td::MultivariateTransformed, y::AbstractVector{<: Real})
-    # logpdf(td.dist, transform(inv(td.transform), y)) .+ logabsdetjac(inv(td.transform), y)
-    logpdf_with_trans(td.dist, inv(td.transform)(y), true)
+    res = forward(inv(td.transform), y)
+    return logpdf(td.dist, res.rv) .- res.logabsdetjac
 end
 
-function logpdf_with_jac(td::UnivariateTransformed, y::Real)
-    z = logabsdetjac(inv(td.transform), y)
-    return (logpdf(td.dist, inv(td.transform)(y)) .+ z, z)
+# TODO: implement more efficiently for flows in the case of `Matrix`
+function _logpdf(td::MvTransformed, y::AbstractVector{<: Real})
+    res = forward(inv(td.transform), y)
+    return logpdf(td.dist, res.rv) .- res.logabsdetjac
 end
 
-function logpdf_with_jac(td::MultivariateTransformed, y::AbstractVector{<:Real})
-    z = logabsdetjac(inv(td.transform), y)
-    return (logpdf(td.dist, inv(td.transform)(y)) .+ z, z)
+function _logpdf(td::MvTransformed{<: Dirichlet}, y::AbstractVector{<: Real})
+    T = eltype(y)
+    ϵ = _eps(T)
+
+    res = forward(inv(td.transform), y)
+    return logpdf(td.dist, mappedarray(x->x+ϵ, res.rv)) .- res.logabsdetjac
+end
+
+# TODO: should eventually drop using `logpdf_with_trans` and replace with
+# res = forward(inv(td.transform), y)
+# logpdf(td.dist, res.rv) .- res.logabsdetjac
+function _logpdf(td::MatrixTransformed, y::AbstractMatrix{<:Real})
+    return logpdf_with_trans(td.dist, inv(td.transform)(y), true)
 end
 
 # rand
 rand(td::UnivariateTransformed) = td.transform(rand(td.dist))
 rand(rng::AbstractRNG, td::UnivariateTransformed) = td.transform(rand(rng, td.dist))
 
-rand(td::MultivariateTransformed) = td.transform(rand(td.dist))
-function rand(td::MultivariateTransformed, num_samples::Int)
+# These ovarloadings are useful for differentiating sampling wrt. params of `td.dist`
+# or params of `Bijector`, as they are not inplace like the default `rand`
+rand(td::MvTransformed) = td.transform(rand(td.dist))
+rand(rng::AbstractRNG, td::MvTransformed) = td.transform(rand(rng, td.dist))
+# TODO: implement more efficiently for flows
+function rand(rng::AbstractRNG, td::MvTransformed, num_samples::Int)
     res = hcat([td.transform(rand(td.dist)) for i = 1:num_samples]...)
     return res
 end
 
-function _rand!(rng::AbstractRNG, td::MultivariateTransformed, x::AbstractVector{<: Real})
+function _rand!(rng::AbstractRNG, td::MvTransformed, x::AbstractVector{<: Real})
     rand!(rng, td.dist, x)
-    y = td.transform(x)
-    copyto!(x, y)
+    x .= td.transform(x)
 end
+
+function _rand!(rng::AbstractRNG, td::MatrixTransformed, x::DenseMatrix{<: Real})
+    rand!(rng, td.dist, x)
+    x .= td.transform(x)
+end
+
+#############################################################
+# Additional useful functions for `TransformedDistribution` #
+#############################################################
+"""
+    logpdf_with_jac(td::UnivariateTransformed, y::Real)
+    logpdf_with_jac(td::MvTransformed, y::AbstractVector{<:Real})
+    logpdf_with_jac(td::MatrixTransformed, y::AbstractMatrix{<:Real})
+
+Makes use of the `forward` method to potentially re-use computation
+and returns a tuple `(logpdf, logabsdetjac)`.
+"""
+function logpdf_with_jac(td::UnivariateTransformed, y::Real)
+    res = forward(inv(td.transform), y)
+    return (logpdf(td.dist, res.rv) .- res.logabsdetjac, res.logabsdetjac)
+end
+
+# TODO: implement more efficiently for flows in the case of `Matrix`
+function logpdf_with_jac(td::MvTransformed, y::AbstractVector{<:Real})
+    res = forward(inv(td.transform), y)
+    return (logpdf(td.dist, res.rv) .- res.logabsdetjac, res.logabsdetjac)
+end
+
+function logpdf_with_jac(td::MvTransformed, y::AbstractMatrix{<:Real})
+    res = forward(inv(td.transform), y)
+    return (logpdf(td.dist, res.rv) .- res.logabsdetjac, res.logabsdetjac)
+end
+
+function logpdf_with_jac(td::MvTransformed{<: Dirichlet}, y::AbstractVector{<:Real})
+    T = eltype(y)
+    ϵ = _eps(T)
+
+    res = forward(inv(td.transform), y)
+    return (logpdf(td.dist, mappedarray(x->x+ϵ, res.rv)) .- res.logabsdetjac, res.logabsdetjac)
+end
+
+# TODO: should eventually drop using `logpdf_with_trans`
+function logpdf_with_jac(td::MatrixTransformed, y::AbstractMatrix{<:Real})
+    res = forward(inv(td.transform), y)
+    return (logpdf_with_trans(td.dist, res.rv, true), res.logabsdetjac)
+end
+
+"""
+    logpdf_forward(td::Transformed, x)
+    logpdf_forward(td::Transformed, x, logjac)
+
+Computes the `logpdf` using the forward pass of the bijector rather than using
+the inverse transform to compute the necessary `logabsdetjac`.
+
+This is similar to `logpdf_with_trans`.
+"""
+# TODO: implement more efficiently for flows in the case of `Matrix`
+logpdf_forward(td::Transformed, x, logjac) = logpdf(td.dist, x) .+ logjac
+logpdf_forward(td::Transformed, x) = logpdf_forward(td, x, logabsdetjac(td.transform, x))
+
+forward(d::Transformed, x) = forward(d.transform, x)
+forward(d::Transformed) = forward(d, rand(d.dist))
 
 # utility stuff
 params(td::Transformed) = params(td.dist)
