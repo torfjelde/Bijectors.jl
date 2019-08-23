@@ -47,7 +47,7 @@ end
 @testset "Flows" begin
     d = MvNormal(zeros(2), ones(2))
     b = PlanarLayer(2)
-    flow = transformed(d, b)  # <= Radial flow
+    flow = transformed(d, b)
     
     y = rand(flow)
     @test logpdf(flow, y) != 0.0
@@ -58,6 +58,22 @@ end
     lp = logpdf_forward(flow, x, res.logabsdetjac)
     
     @test res.rv ≈ y
-    @test logpdf(flow, y) ≈ lp rtol=0.1
-end
+    @test logpdf(flow, y) ≈ lp rtol=0.1  # inverse is not 100% accurate
 
+    # flow with unconstrained-to-constrained
+    d1 = Beta()
+    b1 = inv(bijector(d1))
+    d2 = InverseGamma()
+    b2 = inv(bijector(d2))
+
+    x = rand(d) .+ 10
+    y = b(x)
+
+    sb = vcat(b1, b1)
+    @test all((sb ∘ b)(x) .≤ 1.0)
+
+    sb = vcat(b1, b2)
+    cb = (sb ∘ b)
+    y = cb(x)
+    @test (0 ≤ y[1] ≤ 1.0) && (0 < y[2])
+end

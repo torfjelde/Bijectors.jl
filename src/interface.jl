@@ -205,17 +205,6 @@ function forward(cb::Composed, x)
     return res
 end
 
-function _logabsdetjac(x, b1::Bijector, b2::Bijector)
-    logabsdetjac(b2, b1(x)) + logabsdetjac(b1, x)
-    res = forward(b1, x)
-    return logabsdetjac(b2, res.rv) + res.logabsdetjac
-end
-function _logabsdetjac(x, b1::Bijector, bs::Bijector...)
-    res = forward(b1, x)
-    return _logabsdetjac(res.rv, bs...) + res.logabsdetjac
-end
-logabsdetjac(cb::Composed, x) = _logabsdetjac(x, cb.ts...)
-
 ###########
 # Stacked #
 ###########
@@ -257,7 +246,8 @@ inv(sb::Stacked) = Stacked(inv.(sb.bs))
 end
 _transform(x, rs::NTuple{1, UnitRange{Int}}, b::Bijector) = b(x)
 
-(sb::Stacked)(x) = _transform(x, sb.ranges, sb.bs...)
+(sb::Stacked)(x::AbstractArray{<: Real}) = _transform(x, sb.ranges, sb.bs...)
+(sb::Stacked)(x::AbstractMatrix{<: Real}) = hcat([sb(x[:, i]) for i = 1:size(x, 2)]...)
 
 # TODO: implement jacobian using matrices with BlockDiagonal.jl
 # jacobian(sb::Stacked, x) = BDiagonal([jacobian(sb.bs[i], x[sb.ranges[i]]) for i = 1:length(sb.ranges)])
@@ -298,7 +288,7 @@ end
 (b::Logit)(x) = @. logit((x - b.a) / (b.b - b.a))
 (ib::Inversed{<: Logit{<: Real}})(y) = @. (ib.orig.b - ib.orig.a) * logistic(y) + ib.orig.a
 
-logabsdetjac(b::Logit{<:Real}, x) = log((x - b.a) * (b.b - x) / (b.b - b.a))
+logabsdetjac(b::Logit{<:Real}, x) = @. log((x - b.a) * (b.b - x) / (b.b - b.a))
 
 #############
 # Exp & Log #
@@ -315,7 +305,7 @@ const log_b = Log()
 inv(b::Log) = exp_b
 inv(b::Exp) = log_b
 
-logabsdetjac(b::Log, x) = log(x)
+logabsdetjac(b::Log, x) = @. log(x)
 logabsdetjac(b::Exp, y) = - y
 
 #################
