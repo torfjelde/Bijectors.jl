@@ -42,7 +42,10 @@ abstract type Bijector end
 
 Broadcast.broadcastable(b::Bijector) = Ref(b)
 
-"Abstract type for a `Bijector` making use of auto-differentation (AD)."
+"""
+Abstract type for a `Bijector` making use of auto-differentation (AD) to
+implement `jacobian` and, by impliciation, `logabsdetjac`.
+"""
 abstract type ADBijector{AD} <: Bijector end
 
 """
@@ -72,17 +75,43 @@ logabsdetjac(ib::Inversed{<: Bijector}, y) = - logabsdetjac(ib.orig, ib(y))
 
 """
     forward(b::Bijector, x)
-    forward(ib::Inversed{<: Bijector}, y)
+    forward(b::Bijector, x, logjac)
 
 Computes both `transform` and `logabsdetjac` in one forward pass, and
 returns a named tuple `(rv=b(x), logabsdetjac=logabsdetjac(b, x))`.
+
+`forward(b::Bijector, x, logjac)` allows the user to specify the accumulation
+variable for the `logabsdetjac` field. This is useful for doing batch computations.
+See below for example.
 
 This defaults to the call above, but often one can re-use computation
 in the computation of the forward pass and the computation of the
 `logabsdetjac`. `forward` allows the user to take advantange of such
 efficiencies, if they exist.
+
+# Examples
+`forward(b::Bijector, x, logjac)` allows specification of the accumulation variable
+for the `logabsdetjac` field. This is useful for doing **batch computations**.
+```
+julia> b = PlanarLayer(2);
+
+julia> cb = b ∘ b;
+
+julia> x = randn(2, 3)
+2×3 Array{Float64,2}:
+  0.0660476  -0.77195  -1.7832  
+ -0.147743   -1.46459   0.264924
+
+julia> forward(cb, x)
+ERROR: MethodError: no method matching +(::Array{Float64,1}, ::Float64)
+  ...
+julia> forward(cb, x, zeros(size(x, 2)))
+(rv = [1.10887 0.32029 -0.704563; -0.639206 -1.97935 -0.243419], logabsdetjac = [0.018534, 1.46352e-5, 0.00521633])
+```
+    
 """
-forward(b::Bijector, x) = (rv=b(x), logabsdetjac=logabsdetjac(b, x))
+forward(b::Bijector, x) = forward(b, x, zero(eltype(x)))
+forward(b::Bijector, x, logjac) = (rv=b(x), logabsdetjac=logjac + logabsdetjac(b, x))
 forward(ib::Inversed{<: Bijector}, y) = (
     rv=ib(y),
     logabsdetjac=logabsdetjac(ib, y)
@@ -151,8 +180,8 @@ bijectors are applied to the input right-to-left, e.g. first applying `b2` and t
 ```
 But in the `Composed` struct itself, we store the bijectors left-to-right, so that
 ```
-cb1 = b1 ∘ b2                  # => Composed.ts == [b2, b1]
-cb2 = compose(b2, b1)
+cb1 = b1 ∘ b2                  # => Composed.ts == (b2, b1)
+cb2 = compose(b2, b1)          # => Composed.ts == (b2, b1)
 cb1(x) == cb2(x) == b1(b2(x))  # => true
 ```
 """
@@ -206,8 +235,12 @@ function _forward(f, b::Bijector, bs::Bijector...)
     f_ = (rv=f1.rv, logabsdetjac=f1.logabsdetjac + f.logabsdetjac)
     return _forward(f_, bs...)
 end
-forward(cb::Composed{<: Tuple}, x, logjac) = _forward((rv=x, logabsdetjac=logjac), cb.ts...)
-forward(cb::Composed{<: Tuple}, x) = forward(cb, x, zero(eltype(x)))
+# if `x` represents multiple elements to act on, we want to allow the user to
+# specify the `logjac` accumulation field since it's ambigious, e.g. should
+# it be a vector or a float?
+function forward(cb::Composed{<: Tuple}, x, logjac)
+    _forward((rv=x, logabsdetjac=logjac), cb.ts...)
+end
 
 function forward(cb::Composed, x, logjac)
     rv = x
@@ -220,7 +253,6 @@ function forward(cb::Composed, x, logjac)
     end
     return (rv=rv, logabsdetjac=logjac_)
 end
-forward(cb::Composed, x) = forward(cb, x, zero(eltype(x)))
 
 ###########
 # Stacked #
