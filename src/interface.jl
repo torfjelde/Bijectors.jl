@@ -113,11 +113,11 @@ function jacobian(b::Inversed{<: ADBijector{<: TrackerAD}}, y::Real)
     return Tracker.gradient(b, y)[1]
 end
 function jacobian(b::ADBijector{<: TrackerAD}, x::AbstractVector{<: Real})
-    # we extract `data` so that we don't returne a `Tracked` type
+    # We extract `data` so that we don't returne a `Tracked` type
     return Tracker.data(Tracker.jacobian(b, x))
 end
 function jacobian(b::Inversed{<: ADBijector{<: TrackerAD}}, y::AbstractVector{<: Real})
-    # we extract `data` so that we don't returne a `Tracked` type
+    # We extract `data` so that we don't returne a `Tracked` type
     return Tracker.data(Tracker.jacobian(b, y))
 end
 
@@ -198,7 +198,7 @@ function _logabsdetjac(x, b1::Bijector, bs::Bijector...)
 end
 logabsdetjac(cb::Composed, x) = _logabsdetjac(x, cb.ts...)
 
-# recursive implementation of `forward`
+# Recursive implementation of `forward`
 # HACK: we need this one in the case where `length(cb.ts) == 2`
 # in which case forward(...) immediately calls `_forward(::NamedTuple, b::Bijector)`
 function _forward(f::NamedTuple, b::Bijector)
@@ -294,8 +294,8 @@ struct Identity <: Bijector end
 
 forward(::Identity, x) = (rv=x, logabsdetjac=zero(x))
 
-logabsdetjac(::Identity, y::T) where T <: Real = zero(T)
-logabsdetjac(::Identity, y::AbstractArray{T}) where T <: Real = zero(T)
+logabsdetjac(::Identity, y::T) where {T<:Real} = zero(T)
+logabsdetjac(::Identity, y::AbstractArray{T}) where {T <: Real} = zero(T)
 
 const IdentityBijector = Identity()
 
@@ -329,8 +329,8 @@ const log_b = Log()
 inv(b::Log) = exp_b
 inv(b::Exp) = log_b
 
-logabsdetjac(b::Log, x) = @. log(x)
-logabsdetjac(b::Exp, y) = - y
+logabsdetjac(b::Log, x) = sum(log.(x))
+logabsdetjac(b::Exp, y) = - sum(y)
 
 #################
 # Shift & Scale #
@@ -340,22 +340,31 @@ struct Shift{T} <: Bijector
 end
 
 (b::Shift)(x) = b.a + x
-(b::Shift{<: Real})(x::AbstractVector) = b.a .+ x
+(b::Shift{<: Real})(x::AbstractArray) = b.a .+ x
 (b::Shift{<: AbstractVector})(x::AbstractMatrix) = b.a .+ x
 
 inv(b::Shift) = Shift(-b.a)
-logabsdetjac(b::Shift, x::T) where T = zero(T)
+logabsdetjac(b::Shift, x) = zero(eltype(x))
+# FIXME: ambiguous whether or not this is actually a batch or whatever
+logabsdetjac(b::Shift{<: Real}, x::AbstractMatrix) = zeros(eltype(x), size(x, 2))
+logabsdetjac(b::Shift{<: AbstractVector}, x::AbstractMatrix) = zeros(eltype(x), size(x, 2))
 
 struct Scale{T} <: Bijector
     a::T
 end
 
 (b::Scale)(x) = b.a * x
-(b::Scale{<: Real})(x::AbstractVector) = b.a .* x
-(b::Scale{<: AbstractVector{<: Real}})(x::AbstractMatrix{<: Real}) = b.a * x
+(b::Scale{<: Real})(x::AbstractArray) = b.a .* x
+(b::Scale{<: AbstractVector{<: Real}})(x::AbstractMatrix{<: Real}) = x * b.a
 
-inv(b::Scale) = Scale(b.a^(-1))
-inv(b::Scale{<: AbstractVector}) = Scale(b.a.^(-1))
+inv(b::Scale) = Scale(inv(b.a))
+inv(b::Scale{<: AbstractVector}) = Scale(inv.(b.a))
+
+# TODO: should this be implemented for batch-computation?
+# There's an ambiguity issue
+#      logabsdetjac(b::Scale{<: AbstractVector}, x::AbstractMatrix)
+# Is this a batch or is it simply a matrix we want to scale differently
+# in each component?
 logabsdetjac(b::Scale, x) = log(abs(b.a))
 
 ####################
@@ -366,7 +375,7 @@ struct SimplexBijector{T} <: Bijector where T end
 const simplex_b = SimplexBijector{Val{false}}()
 const simplex_b_proj = SimplexBijector{Val{true}}()
 
-# the following implementations are basically just copy-paste from `invlink` and
+# The following implementations are basically just copy-paste from `invlink` and
 # `link` for `SimplexDistributions` but dropping the dependence on the `Distribution`.
 function _clamp(x::T, b::SimplexBijector) where T
     bounds = (zero(T), one(T))
@@ -559,19 +568,23 @@ Returns the constrained-to-unconstrained bijector for distribution `d`.
 bijector(d::Normal) = IdentityBijector
 bijector(d::MvNormal) = IdentityBijector
 bijector(d::PositiveDistribution) = log_b
+bijector(d::MvLogNormal) = log_b
 bijector(d::SimplexDistribution) = simplex_b_proj
 
 _union2tuple(T1::Type, T2::Type) = (T1, T2)
 _union2tuple(T1::Type, T2::Union) = (T1, _union2tuple(T2.a, T2.b)...)
 _union2tuple(T::Union) = _union2tuple(T.a, T.b)
 
-bijector(d::Kolmogorov) = Logit(zero(eltype(d)), zero(eltype(d)))
-for D in _union2tuple(UnitDistribution)[2:end]
-    # Skipping Kolmogorov because it's a DataType
+bijector(d::KSOneSided) = Logit(zero(eltype(d)), zero(eltype(d)))
+for D in _union2tuple(UnitDistribution)
+    # Skipping KSOneSided because it's not a parametric type
+    if D == KSOneSided
+        continue
+    end
     @eval bijector(d::$D{T}) where T <: Real = Logit(zero(T), one(T))
 end
 
-# FIXME: Can we make this type-stable?
+# FIXME: (TOR) Can we make this type-stable?
 # Everything but `Truncated` can probably be made type-stable
 # by explicit implementation. Can also make a `TruncatedBijector`
 # which has the same transform as the `link` function.
