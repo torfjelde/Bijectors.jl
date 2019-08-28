@@ -2,6 +2,7 @@ using Test
 using Bijectors
 using Random
 using LinearAlgebra
+using ForwardDiff
 
 Random.seed!(123)
 
@@ -72,8 +73,8 @@ struct NonInvertibleBijector{AD} <: ADBijector{AD} end
                 b = bijector(d)
                 x = rand(d)
                 y = b(x)
-                @test logpdf(d, inv(b)(y)) - logabsdetjacinv(b, y) ≈ logpdf_with_trans(d, x, true)
-                @test logpdf(d, x) + logabsdetjac(b, x) ≈ logpdf_with_trans(d, x, true)
+                @test logpdf(d, inv(b)(y)) + logabsdetjacinv(b, y) ≈ logpdf_with_trans(d, x, true)
+                @test logpdf(d, x) - logabsdetjac(b, x) ≈ logpdf_with_trans(d, x, true)
 
                 # forward
                 f = forward(td)
@@ -81,6 +82,14 @@ struct NonInvertibleBijector{AD} <: ADBijector{AD} end
                 @test f.y ≈ td.transform(f.x)
                 @test f.logabsdetjac ≈ logabsdetjac(td.transform, f.x)
                 @test f.logpdf ≈ logpdf(td.dist, f.x) + f.logabsdetjac
+
+                # verify against AD
+                d = dist
+                b = bijector(d)
+                x = rand(d)
+                y = b(x)
+                @test log(abs(ForwardDiff.derivative(b, x))) ≈ logabsdetjac(b, x)
+                @test log(abs(ForwardDiff.derivative(inv(b), y))) ≈ logabsdetjac(inv(b), y)
             end
 
             @testset "$dist: ForwardDiff AD" begin
@@ -165,6 +174,22 @@ struct NonInvertibleBijector{AD} <: ADBijector{AD} end
                 @test f.y ≈ td.transform(f.x)
                 @test f.logabsdetjac ≈ logabsdetjac(td.transform, f.x)
                 @test f.logpdf ≈ logpdf(td.dist, f.x) + f.logabsdetjac
+
+                # verify against AD
+                # similar to what we do in test/transform.jl for Dirichlet
+                if dist isa Dirichlet
+                    b = Bijectors.SimplexBijector{Val{false}}()
+                    x = rand(dist)
+                    y = b(x)
+                    @test log(abs(det(ForwardDiff.jacobian(b, x)))) ≈ logabsdetjac(b, x)
+                    @test log(abs(det(ForwardDiff.jacobian(inv(b), y)))) ≈ logabsdetjac(inv(b), y)
+                else
+                    b = bijector(dist)
+                    x = rand(dist)
+                    y = b(x)
+                    @test log(abs(det(ForwardDiff.jacobian(b, x)))) ≈ logabsdetjac(b, x)
+                    @test log(abs(det(ForwardDiff.jacobian(inv(b), y)))) ≈ logabsdetjac(inv(b), y)
+                end
             end
         end
     end
@@ -209,7 +234,7 @@ struct NonInvertibleBijector{AD} <: ADBijector{AD} end
         x = rand(d)
         y = td.transform(x)
 
-        b = Bijectors.compose(td.transform, Bijectors.Identity())
+        b = Bijectors.composel(td.transform, Bijectors.Identity())
         ib = inv(b)
 
         @test forward(b, x) == forward(td.transform, x)

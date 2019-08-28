@@ -151,9 +151,11 @@ logabsdetjacinv(b::Bijector, y) = logabsdetjac(inv(b), y)
 
 """
     ∘(b1::Bijector, b2::Bijector)
-    compose(ts::Bijector...)
+    composel(ts::Bijector...)
+    composer(ts::Bijector...)
 
-A `Bijector` representing composition of bijectors.
+A `Bijector` representing composition of bijectors. `composel` and `composer` results in a
+`Composed` for which application occurs from left-to-right and right-to-left, respectively.
 
 # Examples
 It's important to note that `∘` does what is expected mathematically, which means that the
@@ -164,7 +166,7 @@ bijectors are applied to the input right-to-left, e.g. first applying `b2` and t
 But in the `Composed` struct itself, we store the bijectors left-to-right, so that
 ```
 cb1 = b1 ∘ b2                  # => Composed.ts == (b2, b1)
-cb2 = compose(b2, b1)          # => Composed.ts == (b2, b1)
+cb2 = composel(b2, b1)         # => Composed.ts == (b2, b1)
 cb1(x) == cb2(x) == b1(b2(x))  # => true
 ```
 """
@@ -172,13 +174,14 @@ struct Composed{A} <: Bijector
     ts::A
 end
 
-compose(ts::Bijector...) = Composed(ts)
+composel(ts::Bijector...) = Composed(ts)
+composer(ts::Bijector...) = Composed(inv(ts))
 
 # The transformation of `Composed` applies functions left-to-right
 # but in mathematics we usually go from right-to-left; this reversal ensures that
 # when we use the mathematical composition ∘ we get the expected behavior.
 # TODO: change behavior of `transform` of `Composed`?
-∘(b1::Bijector, b2::Bijector) = compose(b2, b1)
+∘(b1::Bijector, b2::Bijector) = composel(b2, b1)
 
 inv(ct::Composed) = Composed(map(inv, reverse(ct.ts)))
 
@@ -320,7 +323,7 @@ end
 (b::Logit)(x) = @. logit((x - b.a) / (b.b - b.a))
 (ib::Inversed{<:Logit{<:Real}})(y) = @. (ib.orig.b - ib.orig.a) * logistic(y) + ib.orig.a
 
-logabsdetjac(b::Logit{<:Real}, x) = @. log((x - b.a) * (b.b - x) / (b.b - b.a))
+logabsdetjac(b::Logit{<:Real}, x) = @. - log((x - b.a) * (b.b - x) / (b.b - b.a))
 
 #############
 # Exp & Log #
@@ -335,8 +338,8 @@ struct Log <: Bijector end
 inv(b::Log) = Exp()
 inv(b::Exp) = Log()
 
-logabsdetjac(b::Log, x) = sum(log.(x))
-logabsdetjac(b::Exp, y) = - sum(y)
+logabsdetjac(b::Log, x) = - sum(log.(x))
+logabsdetjac(b::Exp, y) = sum(y)
 
 #################
 # Shift & Scale #
@@ -503,7 +506,7 @@ function logabsdetjac(b::SimplexBijector, x::AbstractVector{T}) where T
         lp += log(z + ϵ) + log((one(T) + ϵ) - z) + log((one(T) + ϵ) - sum_tmp)
     end
 
-    return lp
+    return - lp
 end
 
 #######################################################
@@ -619,13 +622,13 @@ Base.size(td::Transformed) = size(td.dist)
 
 function logpdf(td::UnivariateTransformed, y::Real)
     res = forward(inv(td.transform), y)
-    return logpdf(td.dist, res.rv) .- res.logabsdetjac
+    return logpdf(td.dist, res.rv) .+ res.logabsdetjac
 end
 
 # TODO: implement more efficiently for flows in the case of `Matrix`
 function _logpdf(td::MvTransformed, y::AbstractVector{<:Real})
     res = forward(inv(td.transform), y)
-    return logpdf(td.dist, res.rv) .- res.logabsdetjac
+    return logpdf(td.dist, res.rv) .+ res.logabsdetjac
 end
 
 function _logpdf(td::MvTransformed{<:Dirichlet}, y::AbstractVector{<:Real})
@@ -633,7 +636,7 @@ function _logpdf(td::MvTransformed{<:Dirichlet}, y::AbstractVector{<:Real})
     ϵ = _eps(T)
 
     res = forward(inv(td.transform), y)
-    return logpdf(td.dist, mappedarray(x->x+ϵ, res.rv)) .- res.logabsdetjac
+    return logpdf(td.dist, mappedarray(x->x+ϵ, res.rv)) .+ res.logabsdetjac
 end
 
 # TODO: should eventually drop using `logpdf_with_trans` and replace with
@@ -680,18 +683,18 @@ and returns a tuple `(logpdf, logabsdetjac)`.
 """
 function logpdf_with_jac(td::UnivariateTransformed, y::Real)
     res = forward(inv(td.transform), y)
-    return (logpdf(td.dist, res.rv) .- res.logabsdetjac, res.logabsdetjac)
+    return (logpdf(td.dist, res.rv) .+ res.logabsdetjac, res.logabsdetjac)
 end
 
 # TODO: implement more efficiently for flows in the case of `Matrix`
 function logpdf_with_jac(td::MvTransformed, y::AbstractVector{<:Real})
     res = forward(inv(td.transform), y)
-    return (logpdf(td.dist, res.rv) .- res.logabsdetjac, res.logabsdetjac)
+    return (logpdf(td.dist, res.rv) .+ res.logabsdetjac, res.logabsdetjac)
 end
 
 function logpdf_with_jac(td::MvTransformed, y::AbstractMatrix{<:Real})
     res = forward(inv(td.transform), y)
-    return (logpdf(td.dist, res.rv) .- res.logabsdetjac, res.logabsdetjac)
+    return (logpdf(td.dist, res.rv) .+ res.logabsdetjac, res.logabsdetjac)
 end
 
 function logpdf_with_jac(td::MvTransformed{<:Dirichlet}, y::AbstractVector{<:Real})
@@ -699,7 +702,7 @@ function logpdf_with_jac(td::MvTransformed{<:Dirichlet}, y::AbstractVector{<:Rea
     ϵ = _eps(T)
 
     res = forward(inv(td.transform), y)
-    return (logpdf(td.dist, mappedarray(x->x+ϵ, res.rv)) .- res.logabsdetjac, res.logabsdetjac)
+    return (logpdf(td.dist, mappedarray(x->x+ϵ, res.rv)) .+ res.logabsdetjac, res.logabsdetjac)
 end
 
 # TODO: should eventually drop using `logpdf_with_trans`
