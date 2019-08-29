@@ -304,6 +304,8 @@ _transform(x, rs::NTuple{1, UnitRange{Int}}, b::Bijector) = b(x)
     return :(sum([$(exprs...), ]))
 end
 logabsdetjac(sb::Stacked, x::AbstractVector{<: Real}) = _logabsdetjac(x, sb.ranges, sb.bs...)
+logabsdetjac(sb::Stacked, x::AbstractMatrix{<: Real}) = hcat([logabsdetjac(sb, x[:, i]) for i = 1:size(x, 2)])
+logabsdetjac(sb::Stacked, x::TrackedArray{A, 2}) where {A} = Tracker.collect(hcat([logabsdetjac(sb, x[:, i]) for i = 1:size(x, 2)]))
 
 
 ##############################
