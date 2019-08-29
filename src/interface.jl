@@ -65,7 +65,7 @@ inv(ib::Inversed{<:Bijector}) = ib.orig
     logabsdetjac(b::Bijector, x)
     logabsdetjac(ib::Inversed{<:Bijector}, y)
 
-Computes the log(abs(det(J(x)))) where J is the jacobian of the transform.
+Computes the log(abs(det(J(b(x))))) where J is the jacobian of the transform.
 Similarily for the inverse-transform.
 
 Default implementation for `Inversed{<:Bijector}` is implemented as
@@ -269,7 +269,7 @@ Stacked(bs, ranges) = Stacked(bs, NTuple{length(bs), UnitRange{Int}}(ranges))
 
 Base.vcat(bs::Bijector...) = Stacked(bs)
 
-inv(sb::Stacked) = Stacked(inv.(sb.bs))
+inv(sb::Stacked) = Stacked(inv.(sb.bs), sb.ranges)
 
 # TODO: Is there a better approach to this?
 @generated function _transform(x, rs::NTuple{N, UnitRange{Int}}, bs::Bijector...) where N
@@ -287,7 +287,7 @@ _transform(x, rs::NTuple{1, UnitRange{Int}}, b::Bijector) = b(x)
 
 # TODO: implement jacobian using matrices with BlockDiagonal.jl
 # jacobian(sb::Stacked, x) = BDiagonal([jacobian(sb.bs[i], x[sb.ranges[i]]) for i = 1:length(sb.ranges)])
-function logabsdetjac(sb::Stacked, x::AbstractArray{<: Real})
+function logabsdetjac(sb::Stacked, x::AbstractVector{<:Real})
     # We also sum each of the `logabsdetjac()` calls because in the case we're `x`
     # is a vector, since we're using ranges to index we get back a vector.
     # In this case, 1D bijectors will act elementwise and return a vector of equal length.
@@ -380,13 +380,11 @@ logabsdetjac(b::Scale, x) = log(abs(b.a))
 # Simplex bijector #
 ####################
 struct SimplexBijector{T} <: Bijector where {T} end
-
-const simplex_b = SimplexBijector{Val{false}}()
-const simplex_b_proj = SimplexBijector{Val{true}}()
+SimplexBijector() = SimplexBijector{Val{true}}()
 
 # The following implementations are basically just copy-paste from `invlink` and
 # `link` for `SimplexDistributions` but dropping the dependence on the `Distribution`.
-function _clamp(x::T, b::SimplexBijector) where {T}
+function _clamp(x::T, b::Union{SimplexBijector, Inversed{<:SimplexBijector}}) where {T}
     bounds = (zero(T), one(T))
     clamped_x = clamp(x, bounds...)
     DEBUG && @debug "x = $x, bounds = $bounds, clamped_x = $clamped_x"
@@ -490,6 +488,110 @@ function (ib::Inversed{<:SimplexBijector{Val{proj}}})(
     return X
 end
 
+(b::SimplexBijector{Val{proj}})(x::TrackedArray) where {proj} = Tracker.track(b, x)
+(ib::Inversed{<:SimplexBijector{Val{proj}}})(y::TrackedArray) where {proj} = Tracker.track(ib, y)
+
+function jacobian(
+    b::SimplexBijector{Val{proj}}, 
+    x::AbstractVector{T}
+) where {T<:Real, proj}
+    y, K = similar(x), length(x)
+    dydxt = similar(x, length(x), length(x))
+    @inbounds dydxt .= 0
+    ϵ = _eps(T)
+    sum_tmp = zero(T)
+
+    @inbounds z = x[1] * (one(T) - 2ϵ) + ϵ # z ∈ [ϵ, 1-ϵ]
+    @inbounds y[1] = StatsFuns.logit(z) + log(T(K - 1))
+    @inbounds dydxt[1,1] = (1/z + 1/(1-z)) * (one(T) - 2ϵ)
+    @inbounds @simd for k in 2:(K - 1)
+        sum_tmp += x[k - 1]
+        # z ∈ [ϵ, 1-ϵ]
+        # x[k] = 0 && sum_tmp = 1 -> z ≈ 1
+        z = (x[k] + ϵ)*(one(T) - 2ϵ)/((one(T) + ϵ) - sum_tmp)
+        y[k] = StatsFuns.logit(z) + log(T(K - k))
+	dydxt[k,k] = (1/z + 1/(1-z)) * (one(T) - 2ϵ)/((one(T) + ϵ) - sum_tmp)
+	for i in 1:k-1
+	    dydxt[i,k] = (1/z + 1/(1-z)) * (x[k] + ϵ)*(one(T) - 2ϵ)/((one(T) + ϵ) - sum_tmp)^2
+	end
+    end
+    @inbounds sum_tmp += x[K - 1]
+    @inbounds if proj
+        y[K] = zero(T)
+    else
+        y[K] = one(T) - sum_tmp - x[K]
+	@simd for i in 1:K
+	    dydxt[i,K] = -1
+	end
+    end
+
+    return UpperTriangular(dydxt)'
+end
+
+function jacobian(
+    d::Inversed{<:SimplexBijector{Val{proj}}}, 
+    y::AbstractVector{T}
+) where {T<:Real, proj}
+    x, K = similar(y), length(y)
+    dxdy = similar(y, length(y), length(y))
+    @inbounds dxdy .= 0
+
+    ϵ = _eps(T)
+    @inbounds z = StatsFuns.logistic(y[1] - log(T(K - 1)))
+    unclamped_x = (z - ϵ) / (one(T) - 2ϵ)
+    @inbounds x[1] = _clamp(unclamped_x, d)
+    @inbounds if unclamped_x == x[1]
+        dxdy[1,1] = z * (1 - z) / (one(T) - 2ϵ)
+    end
+    sum_tmp = zero(T)
+    @inbounds for k = 2:(K - 1)
+        z = StatsFuns.logistic(y[k] - log(T(K - k)))
+        sum_tmp += x[k-1]
+        unclamped_x = ((one(T) + ϵ) - sum_tmp) / (one(T) - 2ϵ) * z - ϵ
+        x[k] = _clamp(unclamped_x, d)
+        if unclamped_x == x[k]
+            dxdy[k,k] = z * (1 - z) * ((one(T) + ϵ) - sum_tmp) / (one(T) - 2ϵ)
+            for i in 1:k-1
+                for j in i:k-1
+                    dxdy[k,i] += -dxdy[j,i] * z / (one(T) - 2ϵ)
+                end
+            end
+        end
+    end
+    @inbounds sum_tmp += x[K - 1]
+    @inbounds if proj
+    	unclamped_x = one(T) - sum_tmp
+        x[K] = _clamp(unclamped_x, d)
+    else
+    	unclamped_x = one(T) - sum_tmp - y[K]
+        x[K] = _clamp(unclamped_x, d)
+        if unclamped_x == x[K]
+            dxdy[K,K] = -1
+        end
+    end
+    @inbounds if unclamped_x == x[K]
+        for i in 1:K-1
+            @simd for j in i:K-1
+                dxdy[K,i] += -dxdy[j,i]
+            end
+        end
+    end
+    return LowerTriangular(dxdy)
+end
+
+Tracker.@grad function (b::SimplexBijector{Val{proj}})(x::TrackedArray) where {proj}
+    x_data = Tracker.data(x)
+    T = eltype(x_data)
+    y = b(x_data)
+    return  y, Δ -> (jacobian(b, x_data)' * Δ, )
+end
+
+Tracker.@grad function (ib::Inversed{<:SimplexBijector{Val{proj}}})(y::TrackedArray) where {proj}
+    y_data = Tracker.data(y)
+    T = eltype(y_data)
+    x = ib(y_data)
+    return  x, Δ -> (jacobian(ib, y_data)' * Δ, )
+end
 
 function logabsdetjac(b::SimplexBijector, x::AbstractVector{T}) where T
     ϵ = _eps(T)
@@ -578,7 +680,7 @@ bijector(d::Normal) = IdentityBijector
 bijector(d::MvNormal) = IdentityBijector
 bijector(d::PositiveDistribution) = Log()
 bijector(d::MvLogNormal) = Log()
-bijector(d::SimplexDistribution) = simplex_b_proj
+bijector(d::SimplexDistribution) = SimplexBijector{Val{true}}()
 
 _union2tuple(T1::Type, T2::Type) = (T1, T2)
 _union2tuple(T1::Type, T2::Union) = (T1, _union2tuple(T2.a, T2.b)...)
@@ -778,8 +880,8 @@ logabsdetjac(d::MultivariateDistribution, x::AbstractVector{T}) where T <: Real 
 Computes the `logabsdetjac` of the _inverse_ transformation, since `rand(td)` returns
 the _transformed_ random variable.
 """
-logabsdetjac(td::UnivariateTransformed, y::Real) = logabsdetjac(inv(td.transform), y)
-logabsdetjac(td::MultivariateTransformed, y::AbstractVector{<:Real}) = logabsdetjac(inv(td.transform), y)
+logabsdetjacinv(td::UnivariateTransformed, y::Real) = logabsdetjac(inv(td.transform), y)
+logabsdetjacinv(td::MultivariateTransformed, y::AbstractVector{<:Real}) = logabsdetjac(inv(td.transform), y)
 
 # updating params of distributions
 # TODO: should go somewhere else
