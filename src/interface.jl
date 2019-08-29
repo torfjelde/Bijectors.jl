@@ -287,13 +287,23 @@ _transform(x, rs::NTuple{1, UnitRange{Int}}, b::Bijector) = b(x)
 
 # TODO: implement jacobian using matrices with BlockDiagonal.jl
 # jacobian(sb::Stacked, x) = BDiagonal([jacobian(sb.bs[i], x[sb.ranges[i]]) for i = 1:length(sb.ranges)])
-function logabsdetjac(sb::Stacked, x::AbstractVector{<:Real})
-    # We also sum each of the `logabsdetjac()` calls because in the case we're `x`
-    # is a vector, since we're using ranges to index we get back a vector.
-    # In this case, 1D bijectors will act elementwise and return a vector of equal length.
-    # TODO: Don't do this double-sum? Would be nice to be able to batch things, right?
-    return sum([sum(logabsdetjac(sb.bs[i], x[sb.ranges[i]])) for i = 1:length(sb.ranges)])
+# function logabsdetjac(sb::Stacked, x::AbstractVector{<:Real})
+#     # We also sum each of the `logabsdetjac()` calls because in the case we're `x`
+#     # is a vector, since we're using ranges to index we get back a vector.
+#     # In this case, 1D bijectors will act elementwise and return a vector of equal length.
+#     # TODO: Don't do this double-sum? Would be nice to be able to batch things, right?
+#     return sum([sum(logabsdetjac(sb.bs[i], x[sb.ranges[i]])) for i = 1:length(sb.ranges)])
+# end
+
+@generated function _logabsdetjac(x, rs::NTuple{N, UnitRange{Int}}, bs::Bijector...) where N
+    exprs = []
+    for i = 1:N
+        push!(exprs, :(sum(logabsdetjac(bs[$i], x[rs[$i]]))))
+    end
+
+    return :(sum([$(exprs...), ]))
 end
+logabsdetjac(sb::Stacked, x::AbstractVector{<: Real}) = _logabsdetjac(x, sb.ranges, sb.bs...)
 
 
 ##############################

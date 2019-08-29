@@ -327,11 +327,17 @@ struct NonInvertibleBijector{AD} <: ADBijector{AD} end
             bs = bijector.(tuple(dists...))
             ibs = inv.(bs)
             sb = vcat(ibs...)
+            isb = inv(sb)
             @test sb isa Stacked{<: Tuple}
 
+            # inverse
             y = rand(td)
+            x = isb(y)
+            @test sb(x) ≈ y
 
-            # TODO: add AD tests
+            # AD verification
+            @test log(abs(det(ForwardDiff.jacobian(sb, x)))) ≈ logabsdetjac(sb, x)
+            @test log(abs(det(ForwardDiff.jacobian(isb, y)))) ≈ logabsdetjac(isb, y)
         end
     end
 
