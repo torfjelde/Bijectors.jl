@@ -282,43 +282,27 @@ struct Log <: Bijector end
 inv(b::Log) = Exp()
 inv(b::Exp) = Log()
 
-logabsdetjac(b::Log, x) = - sum(log.(x))
-logabsdetjac(b::Exp, y) = sum(y)
+logabsdetjac(b::Log, x::T) where {T<:Union{Real, AbstractVector{<:Real}}} = - sum(log.(x))
+logabsdetjac(b::Exp, y::T) where {T<:Union{Real, AbstractVector{<:Real}}} = sum(y)
 
 #################
 # Shift & Scale #
 #################
-struct Shift{T} <: Bijector
+struct Shift{T} <: Bijector where {T<:Real}
     a::T
 end
 
-(b::Shift)(x) = b.a + x
-(b::Shift{<:Real})(x::AbstractArray) = b.a .+ x
-(b::Shift{<:AbstractVector})(x::AbstractMatrix) = b.a .+ x
-
+(b::Shift{<:Real})(x::Real) = b.a + x
 inv(b::Shift) = Shift(-b.a)
 logabsdetjac(b::Shift, x) = zero(eltype(x))
-# FIXME: ambiguous whether or not this is actually a batch or whatever
-logabsdetjac(b::Shift{<:Real}, x::AbstractMatrix) = zeros(eltype(x), size(x, 2))
-logabsdetjac(b::Shift{<:AbstractVector}, x::AbstractMatrix) = zeros(eltype(x), size(x, 2))
 
-struct Scale{T} <: Bijector
+struct Scale{T} <: Bijector where {T<:Real}
     a::T
 end
 
-(b::Scale)(x) = b.a * x
-(b::Scale{<:Real})(x::AbstractArray) = b.a .* x
-(b::Scale{<:AbstractVector{<:Real}})(x::AbstractMatrix{<:Real}) = x * b.a
-
-inv(b::Scale) = Scale(inv(b.a))
-inv(b::Scale{<:AbstractVector}) = Scale(inv.(b.a))
-
-# TODO: should this be implemented for batch-computation?
-# There's an ambiguity issue
-#      logabsdetjac(b::Scale{<: AbstractVector}, x::AbstractMatrix)
-# Is this a batch or is it simply a matrix we want to scale differently
-# in each component?
-logabsdetjac(b::Scale, x) = log(abs(b.a))
+(b::Scale{<:Real})(x::Real) = b.a * x
+inv(b::Scale{<:Real}) = Scale(inv(b.a))
+logabsdetjac(b::Scale{<:Real}, x::Real) = log(abs(b.a))
 
 ####################
 # Simplex bijector #
