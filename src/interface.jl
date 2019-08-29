@@ -879,8 +879,26 @@ function forward(rng::AbstractRNG, td::Transformed, num_samples::Int)
     return _forward(td, rand(rng, td.dist, num_samples))
 end
 
-forward(td::Distribution) = forward(GLOBAL_RNG, td)
-forward(td::Distribution, num_samples::Int) = forward(GLOBAL_RNG, td, num_samples)
+"""
+    forward(d::Distribution)
+    forward(d::Distribution, num_samples::Int)
+
+Returns a `NamedTuple` with fields `x`, `y`, `logabsdetjac` and `logpdf`.
+
+In the case where `d isa TransformedDistribution`, this means
+- `x = rand(d.dist)`
+- `y = d.transform(x)`
+- `logabsdetjac` is the logabsdetjac of the "forward" transform.
+- `logpdf` is the logpdf of `y`, not `x`
+
+In the case where `d isa Distribution`, this means
+- `x = rand(d)`
+- `y = x`
+- `logabsdetjac = 0.0`
+- `logpdf` is logpdf of `x`
+"""
+forward(d::Distribution) = forward(GLOBAL_RNG, d)
+forward(d::Distribution, num_samples::Int) = forward(GLOBAL_RNG, d, num_samples)
 
 # utility stuff
 params(td::Transformed) = params(td.dist)
