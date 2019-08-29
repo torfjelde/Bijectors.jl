@@ -284,16 +284,9 @@ _transform(x, rs::NTuple{1, UnitRange{Int}}, b::Bijector) = b(x)
 
 (sb::Stacked)(x::AbstractArray{<: Real}) = _transform(x, sb.ranges, sb.bs...)
 (sb::Stacked)(x::AbstractMatrix{<: Real}) = hcat([sb(x[:, i]) for i = 1:size(x, 2)]...)
-
-# TODO: implement jacobian using matrices with BlockDiagonal.jl
-# jacobian(sb::Stacked, x) = BDiagonal([jacobian(sb.bs[i], x[sb.ranges[i]]) for i = 1:length(sb.ranges)])
-# function logabsdetjac(sb::Stacked, x::AbstractVector{<:Real})
-#     # We also sum each of the `logabsdetjac()` calls because in the case we're `x`
-#     # is a vector, since we're using ranges to index we get back a vector.
-#     # In this case, 1D bijectors will act elementwise and return a vector of equal length.
-#     # TODO: Don't do this double-sum? Would be nice to be able to batch things, right?
-#     return sum([sum(logabsdetjac(sb.bs[i], x[sb.ranges[i]])) for i = 1:length(sb.ranges)])
-# end
+function (sb::Stacked)(x::TrackedArray{A, 2}) where {A}
+    return Tracker.collect(hcat([sb(x[:, i]) for i = 1:size(x, 2)]...))
+end
 
 @generated function _logabsdetjac(x, rs::NTuple{N, UnitRange{Int}}, bs::Bijector...) where N
     exprs = []
@@ -303,9 +296,13 @@ _transform(x, rs::NTuple{1, UnitRange{Int}}, b::Bijector) = b(x)
 
     return :(sum([$(exprs...), ]))
 end
-logabsdetjac(sb::Stacked, x::AbstractVector{<: Real}) = _logabsdetjac(x, sb.ranges, sb.bs...)
-logabsdetjac(sb::Stacked, x::AbstractMatrix{<: Real}) = hcat([logabsdetjac(sb, x[:, i]) for i = 1:size(x, 2)])
-logabsdetjac(sb::Stacked, x::TrackedArray{A, 2}) where {A} = Tracker.collect(hcat([logabsdetjac(sb, x[:, i]) for i = 1:size(x, 2)]))
+logabsdetjac(b::Stacked, x::AbstractVector{<: Real}) = _logabsdetjac(x, b.ranges, sb.bs...)
+function logabsdetjac(sb::Stacked, x::AbstractMatrix{<: Real})
+    return hcat([logabsdetjac(sb, x[:, i]) for i = 1:size(x, 2)])
+end
+function logabsdetjac(sb::Stacked, x::TrackedArray{A, 2}) where {A}
+    return Tracker.collect(hcat([logabsdetjac(sb, x[:, i]) for i = 1:size(x, 2)]))
+end
 
 
 ##############################
