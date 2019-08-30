@@ -124,7 +124,9 @@ end
 struct SingularJacobianException{B} <: Exception where {B<:Bijector}
     b::B
 end
-Base.showerror(io::IO, e::SingularJacobianException) = print(io, "jacobian of $(e.b) is singular")
+function Base.showerror(io::IO, e::SingularJacobianException)
+    print(io, "jacobian of $(e.b) is singular")
+end
 
 # TODO: allow batch-computation, especially for univariate case?
 "Computes the absolute determinant of the Jacobian of the inverse-transformation."
@@ -288,7 +290,11 @@ function (sb::Stacked)(x::TrackedArray{A, 2}) where {A}
     return Tracker.collect(hcat([sb(x[:, i]) for i = 1:size(x, 2)]...))
 end
 
-@generated function _logabsdetjac(x, rs::NTuple{N, UnitRange{Int}}, bs::Bijector...) where N
+@generated function _logabsdetjac(
+    x,
+    rs::NTuple{N, UnitRange{Int}},
+    bs::Bijector...
+) where {N}
     exprs = []
     for i = 1:N
         push!(exprs, :(sum(logabsdetjac(bs[$i], x[rs[$i]]))))
@@ -498,7 +504,9 @@ function (ib::Inversed{<:SimplexBijector{Val{proj}}})(
 end
 
 (b::SimplexBijector{Val{proj}})(x::TrackedArray) where {proj} = Tracker.track(b, x)
-(ib::Inversed{<:SimplexBijector{Val{proj}}})(y::TrackedArray) where {proj} = Tracker.track(ib, y)
+function (ib::Inversed{<:SimplexBijector{Val{proj}}})(y::TrackedArray) where {proj}
+    return Tracker.track(ib, y)
+end
 
 function jacobian(
     b::SimplexBijector{Val{proj}}, 
@@ -595,7 +603,9 @@ Tracker.@grad function (b::SimplexBijector{Val{proj}})(x::TrackedArray) where {p
     return  y, Δ -> (jacobian(b, x_data)' * Δ, )
 end
 
-Tracker.@grad function (ib::Inversed{<:SimplexBijector{Val{proj}}})(y::TrackedArray) where {proj}
+Tracker.@grad function (ib::Inversed{<:SimplexBijector{Val{proj}}})(
+    y::TrackedArray
+) where {proj}
     y_data = Tracker.data(y)
     T = eltype(y_data)
     x = ib(y_data)
@@ -656,7 +666,10 @@ struct TransformedDistribution{D, B, V} <: Distribution{V, Continuous} where {D<
     dist::D
     transform::B
 end
-function TransformedDistribution(d::D, b::B) where {V<:VariateForm, B<:Bijector, D<:Distribution{V, Continuous}}
+function TransformedDistribution(
+    d::D,
+    b::B
+) where {V<:VariateForm, B<:Bijector, D<:Distribution{V, Continuous}}
     return TransformedDistribution{D, B, V}(d, b)
 end
 
@@ -813,7 +826,8 @@ function logpdf_with_jac(td::MvTransformed{<:Dirichlet}, y::AbstractVector{<:Rea
     ϵ = _eps(T)
 
     res = forward(inv(td.transform), y)
-    return (logpdf(td.dist, mappedarray(x->x+ϵ, res.rv)) .+ res.logabsdetjac, res.logabsdetjac)
+    lp = logpdf(td.dist, mappedarray(x->x+ϵ, res.rv)) .+ res.logabsdetjac
+    return (lp, res.logabsdetjac)
 end
 
 # TODO: should eventually drop using `logpdf_with_trans`
@@ -903,7 +917,7 @@ entropy(td::Transformed) = entropy(td.dist)
 
 # logabsdetjac for distributions
 logabsdetjacinv(d::UnivariateDistribution, x::T) where T <: Real = zero(T)
-logabsdetjacinv(d::MultivariateDistribution, x::AbstractVector{T}) where T <: Real = zero(T)
+logabsdetjacinv(d::MvDistribution, x::AbstractVector{T}) where {T<:Real} = zero(T)
 
 # for transformed distributions the `y` is going to be the transformed variable
 # and so we use the inverse transform to get what we want
@@ -916,7 +930,9 @@ Computes the `logabsdetjac` of the _inverse_ transformation, since `rand(td)` re
 the _transformed_ random variable.
 """
 logabsdetjacinv(td::UnivariateTransformed, y::Real) = logabsdetjac(inv(td.transform), y)
-logabsdetjacinv(td::MultivariateTransformed, y::AbstractVector{<:Real}) = logabsdetjac(inv(td.transform), y)
+function logabsdetjacinv(td::MvTransformed, y::AbstractVector{<:Real})
+    return logabsdetjac(inv(td.transform), y)
+end
 
 # updating params of distributions
 # TODO: should go somewhere else
@@ -963,7 +979,10 @@ julia> grad(d, [1.0, 1.0], 0.0)
     return :($(nameof(D))(θ...))
 end
 
-function update(d::TransformedDistribution{D, B, V}, θ...) where {V, D <: Distribution{V, Continuous}, B <: Bijector}
+function update(
+    d::TransformedDistribution{D, B, V},
+    θ...
+) where {V, D<:Distribution{V, Continuous}, B<:Bijector}
     return TransformedDistribution(update(d.dist, θ...), d.transform)
 end
 
