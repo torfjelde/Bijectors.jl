@@ -902,15 +902,15 @@ params(td::Transformed) = params(td.dist)
 entropy(td::Transformed) = entropy(td.dist)
 
 # logabsdetjac for distributions
-logabsdetjac(d::UnivariateDistribution, x::T) where T <: Real = zero(T)
-logabsdetjac(d::MultivariateDistribution, x::AbstractVector{T}) where T <: Real = zero(T)
+logabsdetjacinv(d::UnivariateDistribution, x::T) where T <: Real = zero(T)
+logabsdetjacinv(d::MultivariateDistribution, x::AbstractVector{T}) where T <: Real = zero(T)
 
 # for transformed distributions the `y` is going to be the transformed variable
 # and so we use the inverse transform to get what we want
 # TODO: should this be renamed to `logabsdetinvjac`?
 """
-    logabsdetjac(td::UnivariateTransformed, y::Real)
-    logabsdetjac(td::MultivariateTransformed, y::AbstractVector{<:Real})
+    logabsdetjacinv(td::UnivariateTransformed, y::Real)
+    logabsdetjacinv(td::MultivariateTransformed, y::AbstractVector{<:Real})
 
 Computes the `logabsdetjac` of the _inverse_ transformation, since `rand(td)` returns
 the _transformed_ random variable.

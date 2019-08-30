@@ -47,7 +47,7 @@ end
 @testset "Flows" begin
     d = MvNormal(zeros(2), ones(2))
     b = PlanarLayer(2)
-    flow = transformed(d, b)
+    flow = transformed(d, b)  # <= Radial flow
     
     y = rand(flow)
     @test logpdf(flow, y) != 0.0
