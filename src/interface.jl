@@ -302,7 +302,7 @@ end
 
     return :(sum([$(exprs...), ]))
 end
-logabsdetjac(b::Stacked, x::AbstractVector{<: Real}) = _logabsdetjac(x, b.ranges, sb.bs...)
+logabsdetjac(b::Stacked, x::AbstractVector{<: Real}) = _logabsdetjac(x, b.ranges, b.bs...)
 function logabsdetjac(sb::Stacked, x::AbstractMatrix{<: Real})
     return hcat([logabsdetjac(sb, x[:, i]) for i = 1:size(x, 2)])
 end
