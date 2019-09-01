@@ -58,7 +58,7 @@ end
     lp = logpdf_forward(flow, x, res.logabsdetjac)
     
     @test res.rv ≈ y
-    @test logpdf(flow, y) ≈ lp rtol=0.1  # inverse is not 100% accurate
+    @test logpdf(flow, y) ≈ lp rtol=0.1
 
     # flow with unconstrained-to-constrained
     d1 = Beta()
