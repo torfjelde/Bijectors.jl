@@ -448,4 +448,6 @@ include("interface.jl")
 
 include("norm_flows.jl")
 
+include("show.jl")
+
 end # module
