@@ -8,12 +8,20 @@ import Base: show
 #   especially when the type is parametric.
 #
 function bijectorname(d::B) where {N, B<:Bijector{N}}
+    has_dim = (B.parameters[end] == N)
+
     tname = string(nameof(B))
-    pstring = (B.parameters[end] == N) ? join(B.parameters[1:end - 1], ", ") : join(B.parameters[1:end], ", ")
+    pstring = has_dim ? join(B.parameters[1:end - 1], ", ") : join(B.parameters[1:end], ", ")
+
     if length(pstring) > 40
         pstring = "..."
     end
-    return tname * "{" * pstring * ", Dims=$N}"
+
+    if has_dim
+        return tname * "{" * pstring * ", Dims=$N}"
+    else
+        return tname * "{$pstring}"
+    end
 end
 # bijectorname(d::Composed{A, Dim}) where {A, Dim} = join((nameof(typeof(d)), ""))
 
