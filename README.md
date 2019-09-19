@@ -478,6 +478,33 @@ julia> 0 ≤ y[2] ≤ 1
 true
 ```
 
+Similarily to the multivariate ADVI example, we could use `Stacked` to get a _bounded_ flow:
+
+```julia
+julia> d = MvNormal(zeros(2), ones(2));
+
+julia> ibs = inv.(bijector.((InverseGamma(2, 3), Beta())));
+
+julia> sb = stack(ibs...) # == Stacked(ibs) == Stacked(ibs, [i:i for i = 1:length(ibs)]
+Stacked{Tuple{Exp,Inversed{Logit{Float64}}},2}((Exp(), Inversed{Logit{Float64}}(Logit{Float64}(0.0, 1.0))), (1:1, 2:2))
+
+julia> b = sb ∘ PlanarLayer(2)
+Composed{Tuple{PlanarLayer{Array{Float64,2},Array{Float64,1}},Stacked{Tuple{Exp,Inversed{Logit{Float64}}},2}}}((PlanarLayer{Array{Float64,2},Array{Float64,1}}([-2.00615; 1.17336], [0.248405; -0.319774], [0.481679]), Stacked{Tuple{Exp,Inversed{Logit{Float64}}},2}((Exp(), Inversed{Logit{Float64}}(Logit{Float64}(0.0, 1.0))), (1:1, 2:2))))
+
+julia> td = transformed(d, b);
+
+julia> y = rand(td)
+2-element Array{Float64,1}:
+ 1.026123210859092
+ 0.4412529471603579
+
+julia> 0 < y[1]
+true
+
+julia> 0 ≤ y[2] ≤ 1
+true
+```
+
 Want to fit the flow?
 
 ```julia
