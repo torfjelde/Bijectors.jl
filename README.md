@@ -128,7 +128,7 @@ julia> typeof(b⁻¹)
 Inversed{Logit{Float64},0}
 ```
 
-To make things a bit easier to visually inspect we've added a `Dims=0` in `Base.show` to indicate what the number `0` in the type means. We'll get back to this soon; for now you just need to know that it's the dimensionality of the expected input of the `Bijector` and that all bijectors have this dimensionality parameter in the type.
+To make things a bit easier to visually inspect we've added a `Dims=0` in `Base.show` to indicate what the number `0` in the type means. [We'll get back to this soon](#dimensionality-dim-in-bijectordim); for now you just need to know that it's the dimensionality of the expected input of the `Bijector` and that all bijectors have this dimensionality parameter in the type.
 
 #### Composition
 Also, we can _compose_ bijectors:
