@@ -161,7 +161,7 @@ This far we've seen that we can replicate the functionality provided by `link` a
 julia> using Bijectors: TransformedDistribution
 
 julia> td = transformed(dist)
-TransformedDistribution{Beta{Float64},Logit{Float64},Univariate,0}(
+TransformedDistribution{Beta{Float64},Logit{Float64},Univariate}(
 dist: Beta{Float64}(α=2.0, β=2.0)
 transform: Logit{Float64}(a=0.0, b=1.0)
 )
@@ -253,7 +253,7 @@ orig: Logit{Float64}(a=0.0, b=1.0)
 
 
 julia> td = transformed(Normal(), b⁻¹) # x ∼ 𝓝(0, 1) then b(x) ∈ (0, 1)
-TransformedDistribution{Normal{Float64},Inversed{Logit{Float64},0},Univariate,0}(
+TransformedDistribution{Normal{Float64},Inversed{Logit{Float64},0},Univariate}(
 dist: Normal{Float64}(μ=0.0, σ=1.0)
 transform: Inversed{Logit{Float64}, Dim=0}(
 orig: Logit{Float64}(a=0.0, b=1.0)
@@ -270,7 +270,7 @@ It's worth noting that `support(Beta)` is the _closed_ interval `[0, 1]`, while 
 
 ```julia
 julia> td = transformed(Beta())
-TransformedDistribution{Beta{Float64},Logit{Float64},Univariate,0}(
+TransformedDistribution{Beta{Float64},Logit{Float64},Univariate}(
 dist: Beta{Float64}(α=1.0, β=1.0)
 transform: Logit{Float64}(a=0.0, b=1.0)
 )
@@ -389,7 +389,7 @@ b: [-2.64199]
 
 
 julia> flow = transformed(d, b)
-TransformedDistribution{MvNormal{Float64,PDMats.PDiagMat{Float64,Array{Float64,1}},Array{Float64,1}},PlanarLayer{Array{Float64,2},Array{Float64,1}},Multivariate,1}(
+TransformedDistribution{MvNormal{Float64,PDMats.PDiagMat{Float64,Array{Float64,1}},Array{Float64,1}},PlanarLayer{Array{Float64,2},Array{Float64,1}},Multivariate}(
 dist: DiagNormal(
 dim: 2
 μ: [0.0, 0.0]
@@ -519,7 +519,7 @@ b: [-4.33747] (tracked)
 
 
 julia> flow = transformed(d, b)
-TransformedDistribution{MvNormal{Float64,PDMats.PDiagMat{Float64,Array{Float64,1}},Array{Float64,1}},PlanarLayer{TrackedArray{…,Array{Float64,2}},TrackedArray{…,Array{Float64,1}}},Multivariate,1}(
+TransformedDistribution{MvNormal{Float64,PDMats.PDiagMat{Float64,Array{Float64,1}},Array{Float64,1}},PlanarLayer{TrackedArray{…,Array{Float64,2}},TrackedArray{…,Array{Float64,1}}},Multivariate}(
 dist: DiagNormal(
 dim: 2
 μ: [0.0, 0.0]
