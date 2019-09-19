@@ -282,8 +282,34 @@ julia> inv(td.transform)(rand(td))
 
 will never result in `0` or `1` though any sample arbitrarily close to either `0` or `1` is possible. _Disclaimer: numerical accuracy is limited, so you might still see `0` and `1` if you're lucky._
 
-### Multivariate ADVI example
+#### Multivariate ADVI example
 We can also do _multivariate_ ADVI using the `Stacked` bijector. `Stacked` gives us a way to combine univariate and/or multivariate bijectors into a singe multivariate bijector. Say you have a vector `x` of length 2 and you want to transform the first entry using `Exp` and the second entry using `Log`. `Stacked` gives you an easy and efficient way of representing such a bijector.
+
+```julia
+julia> using Bijectors; using Bijectors: Exp, Log
+
+julia> b = stack(Exp{0}(), Log{0}())
+Stacked{Tuple{Exp{0},Log{0}}, 2}(
+bs: (Exp{Dim=0}(), Log{Dim=0}())
+ranges: (1:1, 2:2)
+)
+
+
+julia> x = [0.0, exp(1.0)]
+2-element Array{Float64,1}:
+ 0.0              
+ 2.718281828459045
+
+julia> b(x)
+2-element Array{Float64,1}:
+ 1.0
+ 1.0
+
+julia> b(x) == [1.0, 1.0]
+true
+```
+
+And now for the multivariate ADVI:
 
 ```julia
 julia> using Bijectors, Random; Random.seed!(42);
