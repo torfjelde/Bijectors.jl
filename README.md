@@ -128,7 +128,7 @@ julia> typeof(b⁻¹)
 Inversed{Logit{Float64},0}
 ```
 
-To make things a bit easier to visually inspect we've added a `Dims=0` here to indicate what the number `0` in the type means. We'll get back to this soon; for now you just need to know that it's the dimensionality of the expected input of the `Bijector` and that all bijectors have this dimensionality parameter in the type.
+To make things a bit easier to visually inspect we've added a `Dims=0` in `Base.show` to indicate what the number `0` in the type means. We'll get back to this soon; for now you just need to know that it's the dimensionality of the expected input of the `Bijector` and that all bijectors have this dimensionality parameter in the type.
 
 #### Composition
 Also, we can _compose_ bijectors:
@@ -237,7 +237,7 @@ julia> forward(inv(b), y)
 
 In fact, the purpose of `forward` is to just _do the right thing_, not necessarily "forward". In this function we'll have access to both the original value `x` and the transformed value `y`, so we can compute `logabsdetjac(b, x)` in either direction. Furthermore, in a lot of cases we can re-use a lot of the computation from `b(x)` in the computation of `logabsdetjac(b, x)`, or vice-versa. `forward(b, x)` will take advantage of such opportunities (if implemented).
 
-#### Batch computation: why we need the dimensionality
+#### Dimensionality: `Dim` in `Bijector{Dim}`
 In most cases a bijector is only well-defined for a particular dimension, e.g. `Logit` is only well-defined on a `Real` (0-dimensional) and so `Logit <: Bijector{0}`. 
 
 ```julia
@@ -274,6 +274,8 @@ julia> dimension(Exp{0}), dimension(Exp{1})
 julia> Exp{1}() isa Bijector{1}
 true
 ```
+
+To re-iterate the point, in most cases this is not necessary as the dimensionality is fixed. But `Exp` is an example where this is necessary. To check, see the docstring for the individual bijectors.
 
 With the dimensionality in the type we're able to dispatch correctly in all cases, which in turn means that computing using batches rather than single inputs works nicely:
 
