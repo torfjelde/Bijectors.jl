@@ -137,8 +137,17 @@ orig: Logit{Float64}(a=0.0, b=1.0)
 julia> id_y(y) ≈ y
 true
 ```
-    
-And since `Composed isa Bijector`:
+
+Notice the type for composition `Composed{..., Dim=0}`. The _actual_ type is
+
+```julia
+julia> typeof(id_y)
+Composed{Tuple{Inversed{Logit{Float64},0},Logit{Float64}},0}
+```
+
+That is, we've replaced `Tuple{Inversed{Logit{Float64},0},Logit{Float64}}` with `...` and `0` with `Dim=0`. The `...` is simply redundant information since you can observe the tuple with its types in the `ts` field of `Composed`. The `Dim=0` part is just to be nice; easier to understand what that number at the end means.
+
+Moreover, since `Composed isa Bijector`:
 
 ```julia
 julia> id_x = inv(id_y)
