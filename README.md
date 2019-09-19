@@ -323,10 +323,26 @@ At this point we've only shown that we can replicate the existing functionality.
 
 ```julia
 julia> y = rand(td)              # ∈ ℝ
--0.8912732445611876
+-0.5369949942509267
 
 julia> x = inv(td.transform)(y)  # transform back to interval [0, 1]
-0.29084714435352943
+0.3688868996596376
+```
+
+Or multiple samples:
+
+```julia
+julia> ys = rand(td, 3)              # ∈ ℝ
+3-element Array{Float64,1}:
+  0.999166054552483 
+ -0.7399721521868848
+ -0.8912732445611876
+
+julia> xs = inv(td.transform)(ys)  # transform back to interval [0, 1]
+3-element Array{Float64,1}:
+ 0.7308945834125756 
+ 0.32301023334148277
+ 0.29084714435352943
 ```
 
 This can be quite convenient if you have computations assuming input to be on the real line.
