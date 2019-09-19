@@ -4,7 +4,7 @@ using Random
 using LinearAlgebra
 using ForwardDiff
 
-using Bijectors: Log, Exp, Shift, Scale, Logit
+using Bijectors: Log, Exp, Shift, Scale, Logit, SimplexBijector
 
 Random.seed!(123)
 
@@ -136,7 +136,15 @@ struct NonInvertibleBijector{AD} <: ADBijector{AD, 1} end
             (Log{1}() ∘ Exp{1}(), randn(2, 3)),
             (inv(Logit(-1.0, 1.0)), randn(3)),
             (Identity{0}(), randn(3)),
-            (Identity{1}(), randn(2, 3))
+            (Identity{1}(), randn(2, 3)),
+            (PlanarLayer(2), randn(2, 3)),
+            (RadialLayer(2), randn(2, 3)),
+            (PlanarLayer(2) ∘ RadialLayer(2), randn(2, 3)),
+            (Exp{1}() ∘ PlanarLayer(2) ∘ RadialLayer(2), randn(2, 3)),
+            (SimplexBijector(), mapslices(z -> normalize(z, 1), rand(2, 3); dims = 1)),
+            (stack(Exp{0}(), Scale(2.0)), randn(2, 3)),
+            (Stacked((Exp{1}(), SimplexBijector()), [1:1, 2:3]),
+             mapslices(z -> normalize(z, 1), rand(3, 2); dims = 1))
         ]
 
         for (b, xs) in bs_xs
@@ -154,29 +162,61 @@ struct NonInvertibleBijector{AD} <: ADBijector{AD, 1} end
                 x_ = ib(y)
                 xs_ = ib(ys)
 
+                result = forward(b, x)
+                results = forward(b, xs)
+
+                iresult = forward(ib, y)
+                iresults = forward(ib, ys)
+
+                # Sizes
                 @test size(y) == size(x)
                 @test size(ys) == size(xs)
+
                 @test size(x_) == size(x)
                 @test size(xs_) == size(xs)
 
+                @test size(result.rv) == size(x)
+                @test size(results.rv) == size(xs)
+
+                @test size(iresult.rv) == size(y)
+                @test size(iresults.rv) == size(ys)
+
+                # Values
+                @test ys == mapslices(z -> b(z), xs; dims = 1)
+                @test ys ≈ results.rv
+
                 if D == 0
+                    # Sizes
                     @test y == ys[1]
 
                     @test length(logabsdetjac(b, xs)) == length(xs)
-                    @test logabsdetjac(b, x) == logabsdetjac(b, xs)[1]
-
                     @test length(logabsdetjac(ib, ys)) == length(xs)
-                    @test logabsdetjac(ib, y) == logabsdetjac(ib, ys)[1]
-                elseif Bijectors.dimension(b) == 1
+
+                    @test size(results.logabsdetjac) == size(xs, )
+                    @test size(iresults.logabsdetjac) == size(ys, )
+
+                    # Values
+                    @test logabsdetjac.(b, xs) == logabsdetjac(b, xs)
+                    @test logabsdetjac.(ib, ys) == logabsdetjac(ib, ys)
+
+                    @test results.logabsdetjac ≈ vec(logabsdetjac.(b, xs))
+                    @test iresults.logabsdetjac ≈ vec(logabsdetjac.(ib, ys))
+                elseif D == 1
                     @test y == ys[:, 1]
                     # Comparing sizes instead of lengths ensures we catch errors s.t.
                     # length(x) == 3 when size(x) == (1, 3).
-                    # We want the return value to
+                    # Sizes
                     @test size(logabsdetjac(b, xs)) == (size(xs, 2), )
-                    @test logabsdetjac(b, x) == logabsdetjac(b, xs)[1]
-
                     @test size(logabsdetjac(ib, ys)) == (size(xs, 2), )
-                    @test logabsdetjac(ib, y) == logabsdetjac(ib, ys)[1]
+
+                    @test size(results.logabsdetjac) == (size(xs, 2), )
+                    @test size(iresults.logabsdetjac) == (size(ys, 2), )
+
+                    # Test all values
+                    @test logabsdetjac(b, xs) == vec(mapslices(z -> logabsdetjac(b, z), xs; dims = 1))
+                    @test logabsdetjac(ib, ys) == vec(mapslices(z -> logabsdetjac(ib, z), ys; dims = 1))
+                    @test results.logabsdetjac ≈ vec(mapslices(z -> logabsdetjac(b, z), xs; dims = 1))
+                    @test iresults.logabsdetjac ≈ vec(mapslices(z -> logabsdetjac(ib, z), ys; dims = 1))
                 else
                     error("tests not implemented yet")
                 end
@@ -192,17 +232,26 @@ struct NonInvertibleBijector{AD} <: ADBijector{AD, 1} end
         d = Truncated(Normal(), -1, 1)
         b = bijector(d)
         x = rand(d)
-        @test b(x) == link(d, x)
+        y = b(x)
+        @test y ≈ link(d, x)
+        @test inv(b)(y) ≈ x
+        @test logabsdetjac(b, x) ≈ logpdf_with_trans(d, x, false) - logpdf_with_trans(d, x, true)
 
         d = Truncated(Normal(), -Inf, 1)
         b = bijector(d)
         x = rand(d)
-        @test b(x) == link(d, x)
+        y = b(x)
+        @test y ≈ link(d, x)
+        @test inv(b)(y) ≈ x
+        @test logabsdetjac(b, x) ≈ logpdf_with_trans(d, x, false) - logpdf_with_trans(d, x, true)
 
         d = Truncated(Normal(), 1, Inf)
         b = bijector(d)
         x = rand(d)
-        @test b(x) == link(d, x)
+        y = b(x)
+        @test y ≈ link(d, x)
+        @test inv(b)(y) ≈ x
+        @test logabsdetjac(b, x) ≈ logpdf_with_trans(d, x, false) - logpdf_with_trans(d, x, true)
     end
 
     @testset "Multivariate" begin
@@ -272,7 +321,7 @@ struct NonInvertibleBijector{AD} <: ADBijector{AD, 1} end
             Wishart(v,S),
             InverseWishart(v,S)
         ]
-        
+
         for dist in matrix_dists
             @testset "$dist: dist" begin
                 td = transformed(dist)
@@ -358,6 +407,141 @@ struct NonInvertibleBijector{AD} <: ADBijector{AD, 1} end
 
         k = length(cb_l.ts)
         @test all([cb_l.ts[i] == cb_r.ts[i] for i = 1:k])
+    end
+
+    @testset "Stacked <: Bijector" begin
+        # `logabsdetjac` withOUT AD
+        d = Beta()
+        b = bijector(d)
+        x = rand(d)
+        y = b(x)
+
+        sb1 = stack(b, b, inv(b), inv(b))             # <= Tuple
+        res1 = forward(sb1, [x, x, y, y])
+
+        @test sb1([x, x, y, y]) == res1.rv
+        @test logabsdetjac(sb1, [x, x, y, y]) ≈ 0.0
+        @test res1.logabsdetjac ≈ 0.0
+
+        sb2 = Stacked([b, b, inv(b), inv(b)])        # <= Array
+        res2 = forward(sb2, [x, x, y, y])
+
+        @test sb2([x, x, y, y]) == res2.rv
+        @test logabsdetjac(sb2, [x, x, y, y]) ≈ 0.0
+        @test res2.logabsdetjac ≈ 0.0
+
+        # `logabsdetjac` with AD
+        b = DistributionBijector(d)
+        y = b(x)
+        
+        sb1 = stack(b, b, inv(b), inv(b))             # <= Tuple
+        res1 = forward(sb1, [x, x, y, y])
+
+        @test sb1([x, x, y, y]) == res1.rv
+        @test logabsdetjac(sb1, [x, x, y, y]) ≈ 0.0
+        @test res1.logabsdetjac ≈ 0.0
+
+        sb2 = Stacked([b, b, inv(b), inv(b)])        # <= Array
+        res2 = forward(sb2, [x, x, y, y])
+
+        @test sb2([x, x, y, y]) == res2.rv
+        @test logabsdetjac(sb2, [x, x, y, y]) ≈ 0.0
+        @test res2.logabsdetjac ≈ 0.0
+
+        # value-test
+        x = ones(3)
+        sb = stack(Bijectors.Exp(), Bijectors.Log(), Bijectors.Shift(5.0))
+        res = forward(sb, x)
+        @test sb(x) == [exp(x[1]), log(x[2]), x[3] + 5.0]
+        @test res.rv == [exp(x[1]), log(x[2]), x[3] + 5.0]
+        @test logabsdetjac(sb, x) == sum([sum(logabsdetjac(sb.bs[i], x[sb.ranges[i]])) for i = 1:3])
+        @test res.logabsdetjac == logabsdetjac(sb, x)
+        
+
+        # TODO: change when we have dimensionality in the type
+        sb = Stacked((Bijectors.Exp(), Bijectors.SimplexBijector()), [1:1, 2:3])
+        x = ones(3) ./ 3.0
+        res = forward(sb, x)
+        @test sb(x) == [exp(x[1]), sb.bs[2](x[2:3])...]
+        @test res.rv == [exp(x[1]), sb.bs[2](x[2:3])...]
+        @test logabsdetjac(sb, x) == sum([sum(logabsdetjac(sb.bs[i], x[sb.ranges[i]])) for i = 1:2])
+        @test res.logabsdetjac == logabsdetjac(sb, x)
+
+        x = ones(4) ./ 4.0
+        @test_throws AssertionError sb(x)
+
+        @test_throws AssertionError Stacked([Bijectors.Exp(), ], (1:1, 2:3))
+        @test_throws MethodError Stacked((Bijectors.Exp(), ), (1:1, 2:3))
+
+        @testset "Stacked: ADVI with MvNormal" begin
+            # MvNormal test
+            dists = [
+                Beta(),
+                Beta(),
+                Beta(),
+                InverseGamma(),
+                InverseGamma(),
+                Gamma(),
+                Gamma(),
+                InverseGamma(),
+                Cauchy(),
+                Gamma(),
+                MvNormal(zeros(2), ones(2))
+            ]
+
+            ranges = []
+            idx = 1
+            for i = 1:length(dists)
+                d = dists[i]
+                push!(ranges, idx:idx + length(d) - 1)
+                idx += length(d)
+            end
+
+            num_params = ranges[end][end]
+            d = MvNormal(zeros(num_params), ones(num_params))
+
+            # Stacked{<:Array}
+            bs = bijector.(dists)     # constrained-to-unconstrained bijectors for dists
+            ibs = inv.(bs)            # invert, so we get unconstrained-to-constrained
+            sb = Stacked(ibs, ranges) # => Stacked <: Bijector
+            x = rand(d)
+
+            @test sb isa Stacked
+
+            td = transformed(d, sb)  # => MultivariateTransformed <: Distribution{Multivariate, Continuous}
+            @test td isa Distribution{Multivariate, Continuous}
+
+            # check that wrong ranges fails
+            @test_throws MethodError stack(ibs...)
+            sb = Stacked(ibs)
+            x = rand(d)
+            @test_throws AssertionError sb(x)
+
+            # Stacked{<:Tuple}
+            bs = bijector.(tuple(dists...))
+            ibs = inv.(bs)
+            sb = Stacked(ibs, ranges)
+            isb = inv(sb)
+            @test sb isa Stacked{<: Tuple}
+
+            # inverse
+            td = transformed(d, sb)
+            y = rand(td)
+            x = isb(y)
+            @test sb(x) ≈ y
+
+            # verification of computation
+            x = rand(d)
+            y = sb(x)
+            y_ = vcat([ibs[i](x[ranges[i]]) for i = 1:length(dists)]...)
+            x_ = vcat([bs[i](y[ranges[i]]) for i = 1:length(dists)]...)
+            @test x ≈ x_
+            @test y ≈ y_
+
+            # AD verification
+            @test log(abs(det(ForwardDiff.jacobian(sb, x)))) ≈ logabsdetjac(sb, x)
+            @test log(abs(det(ForwardDiff.jacobian(isb, y)))) ≈ logabsdetjac(isb, y)
+        end
     end
 
     @testset "Example: ADVI single" begin
