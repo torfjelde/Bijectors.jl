@@ -40,7 +40,7 @@ end
 "Abstract type for a `Bijector`."
 abstract type Bijector{N} end
 
-dimension(b::Bijector{N}) where {N} = N
+dimension(b::Union{B, Type{B}}) where {N, B<:Bijector{N}} = N
 
 Broadcast.broadcastable(b::Bijector) = Ref(b)
 

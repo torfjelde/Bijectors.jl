@@ -121,6 +121,15 @@ true
 
 Pretty neat, huh? `Inversed{Logit}` is also a `Bijector` where we've defined `(ib::Inversed{<:Logit})(y)` as the inverse transformation of `(b::Logit)(x)`. Note that it's not always the case that `inv(b) isa Inversed`, e.g. the inverse of `Exp` is simply `Log` so `inv(Exp()) isa Log` is true. 
 
+In the above, notice the `Dim=0` part of the `Inversed` bijector. In reality, we have
+
+```julia
+julia> typeof(b⁻¹)
+Inversed{Logit{Float64},0}
+```
+
+To make things a bit easier to visually inspect we've added a `Dims=0` here to indicate what the number `0` in the type means. We'll get back to this soon; for now you just need to know that it's the dimensionality of the expected input of the `Bijector` and that all bijectors have this dimensionality parameter in the type.
+
 #### Composition
 Also, we can _compose_ bijectors:
 
@@ -145,7 +154,7 @@ julia> typeof(id_y)
 Composed{Tuple{Inversed{Logit{Float64},0},Logit{Float64}},0}
 ```
 
-That is, we've replaced `Tuple{Inversed{Logit{Float64},0},Logit{Float64}}` with `...` and `0` with `Dim=0`. The `...` is simply redundant information since you can observe the tuple with its types in the `ts` field of `Composed`. The `Dim=0` part is just to be nice; easier to understand what that number means.
+That is, we've replaced `Tuple{Inversed{Logit{Float64},0},Logit{Float64}}` with `...`. The `...` is simply redundant information since you can observe the tuple with its types in the `ts` field of `Composed`.
 
 Moreover, since `Composed isa Bijector`:
 
@@ -227,6 +236,85 @@ julia> forward(inv(b), y)
 ```
 
 In fact, the purpose of `forward` is to just _do the right thing_, not necessarily "forward". In this function we'll have access to both the original value `x` and the transformed value `y`, so we can compute `logabsdetjac(b, x)` in either direction. Furthermore, in a lot of cases we can re-use a lot of the computation from `b(x)` in the computation of `logabsdetjac(b, x)`, or vice-versa. `forward(b, x)` will take advantage of such opportunities (if implemented).
+
+#### Batch computation: why we need the dimensionality
+In most cases a bijector is only well-defined for a particular dimension, e.g. `Logit` is only well-defined on a `Real` (0-dimensional) and so `Logit <: Bijector{0}`. 
+
+```julia
+julia> using Bijectors: Logit
+
+julia> Logit(0.0, 1.0) isa Bijector{0}
+true
+```
+
+We can also use the `dimension` method in Bijectors.jl:
+
+```julia
+julia> using Bijectors: dimension
+
+julia> dimension(Logit) # OR dimension(Logit(0.0, 1.0))
+0
+```
+
+In other cases, e.g. `Exp` there are different implementations of `logabsdetjac` depending on whether or not `Exp` is 0-dim or 1-dim. Therefore we require the dimensionality of the input to be specified upon construction:
+
+```julia
+julia> using Bijectors: Exp
+
+julia> dimension(Exp)  # No dimensionality specified => fails!
+ERROR: MethodError: no method matching dimension(::Type{Exp})
+Closest candidates are:
+  dimension(::Union{Type{B<:Bijector{N}}, B<:Bijector{N}}) where {N, B<:Bijector{N}} at /home/tor/.julia/dev/Bijectors/src/interface.jl:43
+Stacktrace:
+ [1] top-level scope at none:0
+
+julia> dimension(Exp{0}), dimension(Exp{1})
+(0, 1)
+
+julia> Exp{1}() isa Bijector{1}
+true
+```
+
+With the dimensionality in the type we're able to dispatch correctly in all cases, which in turn means that computing using batches rather than single inputs works nicely:
+
+```julia
+julia> using Random; Random.seed!(42);
+
+julia> using Bijectors; using Bijectors: Exp, Log
+
+julia> b = Exp{1}() ∘ Exp{1}();
+
+julia> xs = randn(5, 2);         # Two 1-dim inputs of length 5
+
+julia> logabsdetjac(b, xs[:, 1]) # One input => expect single number out
+9.405739243477809
+
+julia> logabsdetjac(b, xs)       # Two inputs => expect array of two numbers out
+2-element Array{Float64,1}:
+ 9.405739243477809 
+ 1.8155916070998694
+ 
+julia> forward(b, xs)           # Also works for `forward`
+(rv = [1.77444 1.37473; 1.8988 1.86988; … ; 2.09845 1.07382; 371.365 15.2915], logabsdetjac = [9.40574, 1.81559])
+
+julia> res = forward(b, xs)
+(rv = [1.77444 1.37473; 1.8988 1.86988; … ; 2.09845 1.07382; 371.365 15.2915], logabsdetjac = [9.40574, 1.81559])
+
+julia> size(res.rv)
+(5, 2)
+```
+
+This also allows us to catch dimensionality mismatches in compositions:
+
+```julia
+julia> Exp{1}() ∘ Log{0}()
+ERROR: DimensionMismatch("Exp{1} expects 1-dim but Log{0} expects 0-dim")
+Stacktrace:
+ [1] ∘(::Exp{1}, ::Log{0}) at /home/tor/.julia/dev/Bijectors/src/interface.jl:0
+ [2] top-level scope at none:0
+```
+
+
 
 #### Sampling from `TransformedDistribution`
 At this point we've only shown that we can replicate the existing functionality. But we said `TransformedDistribution isa Distribution`, so we also have `rand`:
