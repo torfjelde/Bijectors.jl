@@ -18,7 +18,12 @@ function bijectorname(d::B) where {N, B<:Bijector{N}}
     end
 
     if has_dim
-        return tname * "{" * pstring * ", Dims=$N}"
+        if length(B.parameters) > 1
+            # Prohibit `Exp{, Dim=0}` to happen
+            pstring *= ", "
+        end
+
+        return tname * "{" * pstring * "Dim=$N}"
     else
         return tname * "{$pstring}"
     end

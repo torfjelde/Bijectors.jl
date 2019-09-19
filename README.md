@@ -19,26 +19,30 @@ All exported names from the [Distributions.jl](https://github.com/TuringLang/Bij
 1. `link`: maps a sample of a random distribution `dist` from its support to a value in R^n. Example:
 
 ```julia
+julia> using Random; Random.seed!(42);  # for reproducibility
+
 julia> using Bijectors
 
 julia> dist = Beta(2, 2)
 Beta{Float64}(α=2.0, β=2.0)
 
 julia> x = rand(dist)
-
-0.7472542331020509
+0.36888689965963756
 
 julia> y = link(dist, x)
-1.084021356473311
+-0.5369949942509267
+
+julia> x ≈ z
+true
 ```
 
 2. `invlink`: the inverse of the `link` function. Example:
 
 ```julia
 julia> z = invlink(dist, y)
-0.6543406780096065
+0.3688868996596376
 
-julia> x == z
+julia> x ≈ z
 true
 ```
 
@@ -52,14 +56,14 @@ Dirichlet{Float64}(alpha=[3.0, 3.0])
 
 julia> x = rand(dist)
 2-element Array{Float64,1}:
- 0.46094823621110165
- 0.5390517637888984
+ 0.6681878608650086
+ 0.3318121391349914
 
 julia> logpdf_with_trans(dist, x, false) # ignoring the transformation
-0.6163709733893024
+0.3884529169843196
 
 julia> logpdf_with_trans(dist, x, true) # considering the transformation
--0.7760422307471244
+-1.117919315354598
 ```
 
 ## `Bijector` interface
@@ -81,13 +85,13 @@ julia> dist = Beta(2, 2)
 Beta{Float64}(α=2.0, β=2.0)
 
 julia> x = rand(dist)
-0.7173326646959575
+0.32301023334148277
 
 julia> b = bijector(dist) # bijection (0, 1) → ℝ
-Logit{Float64}(0.0, 1.0)
+Logit{Float64}(a=0.0, b=1.0)
 
 julia> y = b(x)
-0.9312689879144197
+-0.7399721521868848
 ```
 
 In this case we see that `bijector(d::Distribution)` returns the corresponding constrained-to-unconstrained bijection for `Beta`, which indeed is a `Logit` with `a = 0.0` and `b = 1.0`. The resulting `Logit <: Bijector` has a method `(b::Logit)(x)` defined, allowing us to call it just like any other function. Comparing with the above example, `b(x) == link(dist, x)`. Just to convince ourselves:
@@ -103,10 +107,13 @@ What about `invlink`?
 
 ```julia
 julia> b⁻¹ = inv(b)
-Inversed{Logit{Float64}}(Logit{Float64}(0.0, 1.0))
+Inversed{Logit{Float64}, Dim=0}(
+orig: Logit{Float64}(a=0.0, b=1.0)
+)
+
 
 julia> b⁻¹(y)
-0.7173326646959575
+0.32301023334148277
 
 julia> b⁻¹(y) == invlink(dist, y)
 true
@@ -119,7 +126,13 @@ Also, we can _compose_ bijectors:
 
 ```julia
 julia> id_y = (b ∘ b⁻¹)
-Composed{Tuple{Inversed{Logit{Float64}},Logit{Float64}}}((Inversed{Logit{Float64}}(Logit{Float64}(0.0, 1.0)), Logit{Float64}(0.0, 1.0)))
+Composed{..., Dim=0}(
+ts: (Inversed{Logit{Float64}, Dim=0}(
+orig: Logit{Float64}(a=0.0, b=1.0)
+)
+, Logit{Float64}(a=0.0, b=1.0))
+)
+
 
 julia> id_y(y) ≈ y
 true
@@ -129,7 +142,13 @@ And since `Composed isa Bijector`:
 
 ```julia
 julia> id_x = inv(id_y)
-Composed{Tuple{Inversed{Bijectors.Logit{Float64}},Bijectors.Logit{Float64}}}((Inversed{Bijectors.Logit{Float64}}(Bijectors.Logit{Float64}(0.0, 1.0)), Bijectors.Logit{Float64}(0.0, 1.0)))
+Composed{..., Dim=0}(
+ts: (Inversed{Logit{Float64}, Dim=0}(
+orig: Logit{Float64}(a=0.0, b=1.0)
+)
+, Logit{Float64}(a=0.0, b=1.0))
+)
+
 
 julia> id_x(x) ≈ x
 true
@@ -142,26 +161,27 @@ This far we've seen that we can replicate the functionality provided by `link` a
 julia> using Bijectors: TransformedDistribution
 
 julia> td = transformed(dist)
-TransformedDistribution{Beta{Float64},Logit{Float64},Univariate}(
+TransformedDistribution{Beta{Float64},Logit{Float64},Univariate,0}(
 dist: Beta{Float64}(α=2.0, β=2.0)
-transform: Logit{Float64}(0.0, 1.0)
+transform: Logit{Float64}(a=0.0, b=1.0)
 )
+
 
 julia> td isa UnivariateDistribution
 true
 
 julia> logpdf(td, y)
--1.0577727579778098
+-1.248581322756482
 
 julia> logpdf_with_trans(dist, x, true)
--1.05777275797781
+-1.248581322756482
 ```
 
 When computing `logpdf(td, y)` where `td` is the _transformed_ distribution corresponding to `Beta(2, 2)`, it makes more semantic sense to compute the pdf of the _transformed_ variable `y` rather than using the "un-transformed" variable `x` to do so, as we do in `logpdf_with_trans`. With that being said, we can also do
 
 ```julia
 julia> logpdf_forward(td, x)
--1.05777275797781
+-1.248581322756482
 ```
 
 #### `logabsdetjac` and `forward`
@@ -170,10 +190,10 @@ In the computation of both `logpdf` and `logpdf_forward` we need to compute `log
 
 ```julia
 julia> logabsdetjac(b⁻¹, y)
--1.595700144883034
+-1.5201703959922686
 
 julia> logabsdetjac(b, x)
-1.595700144883034
+1.5201703959922686
 ```
 
 Notice that
@@ -187,14 +207,14 @@ which is always the case for a differentiable bijection with differentiable inve
 
 ```julia
 julia> forward(b, x)
-(rv = 0.9312689879144197, logabsdetjac = 1.595700144883034)
+(rv = -0.7399721521868848, logabsdetjac = 1.5201703959922686)
 ```
 
 Similarily
 
 ```julia
 julia> forward(inv(b), y)
-(rv = 0.7173326646959575, logabsdetjac = -1.595700144883034)
+(rv = 0.32301023334148277, logabsdetjac = -1.5201703959922686)
 ```
 
 In fact, the purpose of `forward` is to just _do the right thing_, not necessarily "forward". In this function we'll have access to both the original value `x` and the transformed value `y`, so we can compute `logabsdetjac(b, x)` in either direction. Furthermore, in a lot of cases we can re-use a lot of the computation from `b(x)` in the computation of `logabsdetjac(b, x)`, or vice-versa. `forward(b, x)` will take advantage of such opportunities (if implemented).
@@ -204,10 +224,10 @@ At this point we've only shown that we can replicate the existing functionality.
 
 ```julia
 julia> y = rand(td)              # ∈ ℝ
--0.5231573469209508
+-0.8912732445611876
 
 julia> x = inv(td.transform)(y)  # transform back to interval [0, 1]
-0.37211423725902915
+0.29084714435352943
 ```
 
 This can be quite convenient if you have computations assuming input to be on the real line.
@@ -224,26 +244,40 @@ julia> dist = Beta(2, 2)
 Beta{Float64}(α=2.0, β=2.0)
 
 julia> b = bijector(dist)              # (0, 1) → ℝ
+Logit{Float64}(a=0.0, b=1.0)
 
 julia> b⁻¹ = inv(b)                    # ℝ → (0, 1)
-Inversed{Logit{Float64}}(Logit{Float64}(0.0, 1.0))
-
-julia> td = transformed(Normal(), b⁻¹) # x ∼ 𝓝(0, 1) then b(x) ∈ (0, 1)
-TransformedDistribution{Normal{Float64},Inversed{Logit{Float64}},Univariate}(
-dist: Normal{Float64}(μ=0.0, σ=1.0)
-transform: Inversed{Logit{Float64}}(Logit{Float64}(0.0, 1.0))
+Inversed{Logit{Float64}, Dim=0}(
+orig: Logit{Float64}(a=0.0, b=1.0)
 )
 
+
+julia> td = transformed(Normal(), b⁻¹) # x ∼ 𝓝(0, 1) then b(x) ∈ (0, 1)
+TransformedDistribution{Normal{Float64},Inversed{Logit{Float64},0},Univariate,0}(
+dist: Normal{Float64}(μ=0.0, σ=1.0)
+transform: Inversed{Logit{Float64}, Dim=0}(
+orig: Logit{Float64}(a=0.0, b=1.0)
+)
+
+)
+
+
 julia> x = rand(td)                    # ∈ (0, 1)
-0.37786466412061664
+0.6229478868764944
 ```
 
 It's worth noting that `support(Beta)` is the _closed_ interval `[0, 1]`, while the constrained-to-unconstrained bijection, `Logit` in this case, is only well-defined as a map `(0, 1) → ℝ` for the _open_ interval `(0, 1)`. This is of course not an implementation detail. `ℝ` is itself open, thus no continuous bijection exists from a _closed_ interval to `ℝ`. But since the boundaries of a closed interval has what's known as measure zero, this doesn't end up affecting the resulting density with support on the entire real line. In practice, this means that
 
 ```julia
-td = transformed(Beta())
+julia> td = transformed(Beta())
+TransformedDistribution{Beta{Float64},Logit{Float64},Univariate,0}(
+dist: Beta{Float64}(α=1.0, β=1.0)
+transform: Logit{Float64}(a=0.0, b=1.0)
+)
 
-inv(td.transform)(rand(td))
+
+julia> inv(td.transform)(rand(td))
+0.25166604357817435
 ```
 
 will never result in `0` or `1` though any sample arbitrarily close to either `0` or `1` is possible. _Disclaimer: numerical accuracy is limited, so you might still see `0` and `1` if you're lucky._
@@ -252,7 +286,7 @@ will never result in `0` or `1` though any sample arbitrarily close to either `0
 We can also do _multivariate_ ADVI using the `Stacked` bijector. `Stacked` gives us a way to combine univariate and/or multivariate bijectors into a singe multivariate bijector. Say you have a vector `x` of length 2 and you want to transform the first entry using `Exp` and the second entry using `Log`. `Stacked` gives you an easy and efficient way of representing such a bijector.
 
 ```julia
-julia> using Bijectors
+julia> using Bijectors, Random; Random.seed!(42);
 
 julia> using Bijectors: Exp, Log, SimplexBijector
 
@@ -296,23 +330,39 @@ dim: 4
 
 julia> # Construct the transform
        bs = bijector.(dists)     # constrained-to-unconstrained bijectors for dists
-(Logit{Float64}(0.0, 1.0), Log(), SimplexBijector{Val{true}}())
+(Logit{Float64}(a=0.0, b=1.0), Log{Dim=0}(), SimplexBijector{Val{true}}())
 
 julia> ibs = inv.(bs)            # invert, so we get unconstrained-to-constrained
-(Inversed{Logit{Float64}}(Logit{Float64}(0.0, 1.0)), Exp(), Inversed{SimplexBijector{Val{true}}}(SimplexBijector{Val{true}}()))
+(Inversed{Bijectors.Logit{Float64}, Dim=0}(
+orig: Logit{Float64}(a=0.0, b=1.0)
+)
+, Exp{Dim=0}(), Inversed{SimplexBijector{Val{true}}, Dim=1}(
+orig: SimplexBijector{Val{true}}()
+)
+)
 
 julia> sb = Stacked(ibs, ranges) # => Stacked <: Bijector
-Stacked{Tuple{Inversed{Logit{Float64}},Exp,Inversed{SimplexBijector{Val{true}}}},3}((Inversed{Logit{Float64}}(Logit{Float64}(0.0, 1.0)), Exp(), Inversed{SimplexBijector{Val{true}}}(SimplexBijector{Val{true}}())), (1:1, 2:2, 3:4))
+Stacked{...}(
+bs: (Inversed{Bijectors.Logit{Float64}, Dim=0}(
+orig: Logit{Float64}(a=0.0, b=1.0)
+)
+, Exp{Dim=0}(), Inversed{SimplexBijector{Val{true}}, Dim=1}(
+orig: SimplexBijector{Val{true}}()
+)
+)
+ranges: (1:1, 2:2, 3:4)
+)
+
 
 julia> # Mean-field normal with unconstrained-to-constrained stacked bijector
        td = transformed(d, sb);
 
 julia> y = rand(td)
 4-element Array{Float64,1}:
- 0.33551575658457006
- 0.12139631354191643
- 0.3900060432982573 
- 0.6099939567017427 
+ 0.36446726136766217
+ 0.6412195576273355 
+ 0.5067884173521743 
+ 0.4932115826478257 
 
 julia> 0.0 ≤ y[1] ≤ 1.0   # => true
 true
@@ -331,17 +381,27 @@ A very interesting application is that of _normalizing flows_.[1] Usually this i
 julia> d = MvNormal(zeros(2), ones(2));
 
 julia> b = PlanarLayer(2)
-PlanarLayer{Array{Float64,2},Array{Float64,1}}([1.25544; -0.644276], [0.735741; 0.522381], [-1.19838])
+PlanarLayer{Array{Float64,2}, Array{Float64,1}}(
+w: [1.77786; -1.1449]
+u: [-0.468606; 0.156143]
+b: [-2.64199]
+)
+
 
 julia> flow = transformed(d, b)
-TransformedDistribution{MvNormal{Float64,PDMats.PDiagMat{Float64,Array{Float64,1}},Array{Float64,1}},PlanarLayer{Array{Float64,2},Array{Float64,1}},Multivariate}(
+TransformedDistribution{MvNormal{Float64,PDMats.PDiagMat{Float64,Array{Float64,1}},Array{Float64,1}},PlanarLayer{Array{Float64,2},Array{Float64,1}},Multivariate,1}(
 dist: DiagNormal(
 dim: 2
 μ: [0.0, 0.0]
 Σ: [1.0 0.0; 0.0 1.0]
 )
 
-transform: PlanarLayer{Array{Float64,2},Array{Float64,1}}([1.25544; -0.644276], [0.735741; 0.522381], [-1.19838])
+transform: PlanarLayer{Array{Float64,2}, Array{Float64,1}}(
+w: [1.77786; -1.1449]
+u: [-0.468606; 0.156143]
+b: [-2.64199]
+)
+
 )
 
 
@@ -354,19 +414,19 @@ That's it. Now we can sample from it using `rand` and compute the `logpdf`, like
 ```julia
 julia> y = rand(flow)
 2-element Array{Float64,1}:
- 0.8356896540230636 
- 0.07708282276548209
+ 1.3337915588180933
+ 1.010861989639227 
 
 julia> logpdf(flow, y)         # uses inverse of `b`; not very efficient for `PlanarFlow` and not 100% accurate
--2.151503833297053
+-2.8996106373788293
 
 julia> x = rand(flow.dist)
 2-element Array{Float64,1}:
- 0.8186517293759961 
- 0.31896083550211446
+ 0.18702790710363  
+ 0.5181487878771377
 
 julia> logpdf_forward(flow, x) # more efficent and accurate
--2.2489445532797867
+-1.9813114667203335
 ```
 
 Similarily to the multivariate ADVI example, we could use `Stacked` to get a _bounded_ flow:
@@ -377,17 +437,39 @@ julia> d = MvNormal(zeros(2), ones(2));
 julia> ibs = inv.(bijector.((InverseGamma(2, 3), Beta())));
 
 julia> sb = stack(ibs...) # == Stacked(ibs) == Stacked(ibs, [i:i for i = 1:length(ibs)]
-Stacked{Tuple{Exp,Inversed{Logit{Float64}}},2}((Exp(), Inversed{Logit{Float64}}(Logit{Float64}(0.0, 1.0))), (1:1, 2:2))
+Stacked{...}(
+bs: (Exp{Dim=0}(), Inversed{Bijectors.Logit{Float64}, Dim=0}(
+orig: Logit{Float64}(a=0.0, b=1.0)
+)
+)
+ranges: (1:1, 2:2)
+)
+
 
 julia> b = sb ∘ PlanarLayer(2)
-Composed{Tuple{PlanarLayer{Array{Float64,2},Array{Float64,1}},Stacked{Tuple{Exp,Inversed{Logit{Float64}}},2}}}((PlanarLayer{Array{Float64,2},Array{Float64,1}}([-2.00615; 1.17336], [0.248405; -0.319774], [0.481679]), Stacked{Tuple{Exp,Inversed{Logit{Float64}}},2}((Exp(), Inversed{Logit{Float64}}(Logit{Float64}(0.0, 1.0))), (1:1, 2:2))))
+Composed{..., Dim=1}(
+ts: (PlanarLayer{Array{Float64,2}, Array{Float64,1}}(
+w: [1.49138; 0.367563]
+u: [-0.886205; 0.684565]
+b: [-1.59058]
+)
+, Stacked{...}(
+bs: (Exp{Dim=0}(), Inversed{Bijectors.Logit{Float64}, Dim=0}(
+orig: Logit{Float64}(a=0.0, b=1.0)
+)
+)
+ranges: (1:1, 2:2)
+)
+)
+)
+
 
 julia> td = transformed(d, b);
 
 julia> y = rand(td)
 2-element Array{Float64,1}:
- 1.026123210859092 
- 0.4412529471603579
+ 2.6493626783431035
+ 0.1833391433092443
 
 julia> 0 < y[1]
 true
@@ -402,36 +484,46 @@ Want to fit the flow?
 julia> using Tracker
 
 julia> b = PlanarLayer(2, param)                  # construct parameters using `param`
-PlanarLayer{TrackedArray{…,Array{Float64,2}},TrackedArray{…,Array{Float64,1}}}([0.100896; -0.753183] (tracked), [0.320337; 0.674077] (tracked), [-1.02852] (tracked))
+PlanarLayer{...}(
+w: [-1.05099; 0.502079] (tracked)
+u: [-0.216248; -0.706424] (tracked)
+b: [-4.33747] (tracked)
+)
+
 
 julia> flow = transformed(d, b)
-TransformedDistribution{MvNormal{Float64,PDMats.PDiagMat{Float64,Array{Float64,1}},Array{Float64,1}},PlanarLayer{TrackedArray{…,Array{Float64,2}},TrackedArray{…,Array{Float64,1}}},Multivariate}(
+TransformedDistribution{MvNormal{Float64,PDMats.PDiagMat{Float64,Array{Float64,1}},Array{Float64,1}},PlanarLayer{TrackedArray{…,Array{Float64,2}},TrackedArray{…,Array{Float64,1}}},Multivariate,1}(
 dist: DiagNormal(
 dim: 2
 μ: [0.0, 0.0]
 Σ: [1.0 0.0; 0.0 1.0]
 )
 
-transform: PlanarLayer{TrackedArray{…,Array{Float64,2}},TrackedArray{…,Array{Float64,1}}}([0.100896; -0.753183] (tracked), [0.320337; 0.674077] (tracked), [-1.02852] (tracked))
+transform: PlanarLayer{...}(
+w: [-1.05099; 0.502079] (tracked)
+u: [-0.216248; -0.706424] (tracked)
+b: [-4.33747] (tracked)
+)
+
 )
 
 
 julia> rand(flow)
 Tracked 2-element Array{Float64,1}:
-  0.32015420426554175
- -0.9860754227482333 
+  0.5992818950827451
+ -0.6264187818605164
 
 julia> x = rand(flow.dist)
 2-element Array{Float64,1}:
-  0.11278529997563423
- -1.6565063910085815 
+ -0.37240087577993225
+  0.36901028455183293
 
 julia> Tracker.back!(logpdf_forward(flow, x), 1.0) # backprob
 
 julia> Tracker.grad(b.w)
 2×1 Array{Float64,2}:
- -0.277554258517636  
-  0.24043919425701835
+ -0.00037431072968105417
+  0.0013039074681623036
 ```
 
 We can easily create more complex flows by simply doing `PlanarFlow(10) ∘ PlanarFlow(10) ∘ RadialFlow(10)` and so on.
@@ -447,7 +539,7 @@ julia> @Flux.treelike TransformedDistribution
 julia> @Flux.treelike PlanarLayer
 
 julia> Flux.params(flow)
-Params([[0.100896; -0.753183] (tracked), [0.320337; 0.674077] (tracked), [-1.02852] (tracked)])
+Params([[-1.05099; 0.502079] (tracked), [-0.216248; -0.706424] (tracked), [-4.33747] (tracked)])
 ```
 Though we might just do this for you in the future, so then all you'll have to do is call `Flux.params`.
 
@@ -455,7 +547,7 @@ Another useful function is the `forward(d::Distribution)` method. It is similar 
 
 ```julia
 julia> x, y, logjac, logpdf_y = forward(flow) # sample + transform and returns all the useful quantities in one pass
-(x = [-0.387191, 0.761807], y = [-0.677683, 0.0866711] (tracked), logabsdetjac = -0.07475475048737289 (tracked), logpdf = -2.1282560611425447 (tracked))
+(x = [0.33651, -0.186322], y = [0.36596, 0.609227] (tracked), logabsdetjac = -0.00010293642226517882 (tracked), logpdf = -1.9117514498466364 (tracked))
 ```
 
 This method is for example useful when computing quantities such as the _expected lower bound (ELBO)_ between this transformed distribution and some other joint density. If no analytical expression is available, we have to approximate the ELBO by a Monte Carlo estimate. But one term in the ELBO is the entropy of the base density, which we _do_ know analytically in this case. Using the analytical expression for the entropy and then using a monte carlo estimate for the rest of the terms in the ELBO gives an estimate with lower variance than if we used the monte carlo estimate for the entire expectation.
@@ -483,7 +575,7 @@ A slightly more complex example is `Logit`:
 ```julia
 using StatsFuns: logit, logistic
 
-struct Logit{T<:Real} <: Bijector
+struct Logit{T<:Real} <: Bijector{0}  # only well-defined bijection for 0-dim input
     a::T
     b::T
 end
@@ -500,19 +592,23 @@ Then
 
 ```julia
 julia> b = Logit(0.0, 1.0)
-Logit{Float64}(0.0, 1.0)
+Logit{Float64}(a=0.0, b=1.0)
 
 julia> b(0.6)
 0.4054651081081642
 
 julia> inv(b)(y)
-0.6
+Tracked 2-element Array{Float64,1}:
+ 0.5904823314490454
+ 0.6477644361339783
 
 julia> logabsdetjac(b, 0.6)
 1.4271163556401458
 
 julia> logabsdetjac(inv(b), y) # defaults to `- logabsdetjac(b, inv(b)(x))`
--1.4271163556401458
+Tracked 2-element Array{Float64,1}:
+ -1.419590795107063 
+ -1.4776832848859354
 
 julia> forward(b, 0.6)         # defaults to `(rv=b(x), logabsdetjac=logabsdetjac(b, x))`
 (rv = 0.4054651081081642, logabsdetjac = 1.4271163556401458)
@@ -529,13 +625,13 @@ julia> function forward(b::Logit{<:Real}, x)
            logjac = @. - log((b.b - x) * totally_worth_saving)
            return (rv=y, logabsdetjac = logjac)
        end
-forward (generic function with 16 methods)
+forward (generic function with 17 methods)
 
 julia> forward(b, 0.6)
 (rv = 0.4054651081081642, logabsdetjac = 1.4271163556401458)
 
 julia> @which forward(b, 0.6)
-forward(b::Logit{#s4} where #s4<:Real, x) in Main at REPL[43]:2
+forward(b::Logit{#s6} where #s6<:Real, x) in Main at REPL[83]:2
 ```
 
 As you can see it's a very contrived example, but you get the idea.
@@ -548,7 +644,7 @@ We could also have implemented `Logit` as an `ADBijector`:
 using StatsFuns: logit, logistic
 using Bijectors: ADBackend
 
-struct ADLogit{T, AD} <: ADBijector{AD}
+struct ADLogit{T, AD} <: ADBijector{AD, 0}  # 0 represents 0-dim Bijector
     a::T
     b::T
 end
@@ -564,7 +660,7 @@ No implementation of `logabsdetjac`, but:
 
 ```julia
 julia> b_ad = ADLogit(0.0, 1.0)
-ADLogit{Float64,Bijectors.ForwardDiffAD}(0.0, 1.0)
+ADLogit{Float64, Bijectors.ForwardDiffAD}(a=0.0, b=1.0)
 
 julia> logabsdetjac(b_ad, 0.6)
 1.4271163556401458
@@ -583,7 +679,7 @@ Neat! And just to verify that everything works:
 
 ```julia
 julia> b = Logit(0.0, 1.0)
-Logit{Float64}(0.0, 1.0)
+Logit{Float64}(a=0.0, b=1.0)
 
 julia> logabsdetjac(b, 0.6)
 1.4271163556401458
@@ -599,7 +695,7 @@ julia> Bijectors.setadbackend(:reverse_diff)
 :reverse_diff
 
 julia> b_ad = ADLogit(0.0, 1.0)
-ADLogit{Float64,Bijectors.TrackerAD}(0.0, 1.0)
+ADLogit{Float64, Bijectors.TrackerAD}(a=0.0, b=1.0)
 
 julia> logabsdetjac(b_ad, 0.6)
 1.4271163556401458
