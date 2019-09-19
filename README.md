@@ -145,7 +145,7 @@ julia> typeof(id_y)
 Composed{Tuple{Inversed{Logit{Float64},0},Logit{Float64}},0}
 ```
 
-That is, we've replaced `Tuple{Inversed{Logit{Float64},0},Logit{Float64}}` with `...` and `0` with `Dim=0`. The `...` is simply redundant information since you can observe the tuple with its types in the `ts` field of `Composed`. The `Dim=0` part is just to be nice; easier to understand what that number at the end means.
+That is, we've replaced `Tuple{Inversed{Logit{Float64},0},Logit{Float64}}` with `...` and `0` with `Dim=0`. The `...` is simply redundant information since you can observe the tuple with its types in the `ts` field of `Composed`. The `Dim=0` part is just to be nice; easier to understand what that number means.
 
 Moreover, since `Composed isa Bijector`:
 
