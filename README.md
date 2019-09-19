@@ -512,17 +512,39 @@ julia> d = MvNormal(zeros(2), ones(2));
 julia> ibs = inv.(bijector.((InverseGamma(2, 3), Beta())));
 
 julia> sb = stack(ibs...) # == Stacked(ibs) == Stacked(ibs, [i:i for i = 1:length(ibs)]
-Stacked{Tuple{Exp,Inversed{Logit{Float64}}},2}((Exp(), Inversed{Logit{Float64}}(Logit{Float64}(0.0, 1.0))), (1:1, 2:2))
+Stacked{...}(
+bs: (Exp{Dim=0}(), Inversed{Bijectors.Logit{Float64}, Dim=0}(
+orig: Logit{Float64}(a=0.0, b=1.0)
+)
+)
+ranges: (1:1, 2:2)
+)
+
 
 julia> b = sb ∘ PlanarLayer(2)
-Composed{Tuple{PlanarLayer{Array{Float64,2},Array{Float64,1}},Stacked{Tuple{Exp,Inversed{Logit{Float64}}},2}}}((PlanarLayer{Array{Float64,2},Array{Float64,1}}([-2.00615; 1.17336], [0.248405; -0.319774], [0.481679]), Stacked{Tuple{Exp,Inversed{Logit{Float64}}},2}((Exp(), Inversed{Logit{Float64}}(Logit{Float64}(0.0, 1.0))), (1:1, 2:2))))
+Composed{..., Dim=1}(
+ts: (PlanarLayer{Array{Float64,2}, Array{Float64,1}}(
+w: [-1.05099; 0.502079]
+u: [-0.216248; -0.706424]
+b: [-4.33747]
+)
+, Stacked{...}(
+bs: (Exp{Dim=0}(), Inversed{Bijectors.Logit{Float64}, Dim=0}(
+orig: Logit{Float64}(a=0.0, b=1.0)
+)
+)
+ranges: (1:1, 2:2)
+)
+)
+)
+
 
 julia> td = transformed(d, b);
 
 julia> y = rand(td)
 2-element Array{Float64,1}:
- 1.026123210859092
- 0.4412529471603579
+ 1.820810797617946
+ 0.348323010969172
 
 julia> 0 < y[1]
 true
@@ -538,9 +560,9 @@ julia> using Tracker
 
 julia> b = PlanarLayer(2, param)                  # construct parameters using `param`
 PlanarLayer{...}(
-w: [-1.05099; 0.502079] (tracked)
-u: [-0.216248; -0.706424] (tracked)
-b: [-4.33747] (tracked)
+w: [-0.372401; 0.36901] (tracked)
+u: [-0.00761298; 0.562669] (tracked)
+b: [0.106869] (tracked)
 )
 
 
@@ -553,30 +575,32 @@ dim: 2
 )
 
 transform: PlanarLayer{...}(
-w: [-1.05099; 0.502079] (tracked)
-u: [-0.216248; -0.706424] (tracked)
-b: [-4.33747] (tracked)
+w: [-0.372401; 0.36901] (tracked)
+u: [-0.00761298; 0.562669] (tracked)
+b: [0.106869] (tracked)
 )
 
 )
 
 
 julia> rand(flow)
+
 Tracked 2-element Array{Float64,1}:
-  0.5992818950827451
- -0.6264187818605164
+ 0.6482818843933232
+ 0.6835269011212091
 
 julia> x = rand(flow.dist)
 2-element Array{Float64,1}:
- -0.37240087577993225
-  0.36901028455183293
+ -1.3391251213773154 
+ -0.23828371819888622
 
 julia> Tracker.back!(logpdf_forward(flow, x), 1.0) # backprob
 
 julia> Tracker.grad(b.w)
 2×1 Array{Float64,2}:
- -0.00037431072968105417
-  0.0013039074681623036
+  0.23172909732116564
+ -0.24288518784004987
+
 ```
 
 We can easily create more complex flows by simply doing `PlanarFlow(10) ∘ PlanarFlow(10) ∘ RadialFlow(10)` and so on.
@@ -592,7 +616,7 @@ julia> @Flux.treelike TransformedDistribution
 julia> @Flux.treelike PlanarLayer
 
 julia> Flux.params(flow)
-Params([[-1.05099; 0.502079] (tracked), [-0.216248; -0.706424] (tracked), [-4.33747] (tracked)])
+Params([[-0.372401; 0.36901] (tracked), [-0.00761298; 0.562669] (tracked), [0.106869] (tracked)])
 ```
 Though we might just do this for you in the future, so then all you'll have to do is call `Flux.params`.
 
@@ -600,7 +624,7 @@ Another useful function is the `forward(d::Distribution)` method. It is similar 
 
 ```julia
 julia> x, y, logjac, logpdf_y = forward(flow) # sample + transform and returns all the useful quantities in one pass
-(x = [0.33651, -0.186322], y = [0.36596, 0.609227] (tracked), logabsdetjac = -0.00010293642226517882 (tracked), logpdf = -1.9117514498466364 (tracked))
+(x = [-0.234212, -0.678526], y = [-0.264761, -0.679473] (tracked), logabsdetjac = -0.21750088829782377 (tracked), logpdf = -1.8780026591741208 (tracked))
 ```
 
 This method is for example useful when computing quantities such as the _expected lower bound (ELBO)_ between this transformed distribution and some other joint density. If no analytical expression is available, we have to approximate the ELBO by a Monte Carlo estimate. But one term in the ELBO is the entropy of the base density, which we _do_ know analytically in this case. Using the analytical expression for the entropy and then using a monte carlo estimate for the rest of the terms in the ELBO gives an estimate with lower variance than if we used the monte carlo estimate for the entire expectation.
