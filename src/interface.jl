@@ -160,9 +160,9 @@ logabsdetjacinv(b::Bijector, y) = logabsdetjac(inv(b), y)
 """
     Composed(ts::A)
 
-    ∘(b1::Bijector, b2::Bijector)::Composed{<:Tuple}
-    composel(ts::Bijector...)::Composed{<:Tuple}
-    composer(ts::Bijector...)::Composed{<:Tuple}
+    ∘(b1::Bijector{N}, b2::Bijector{N})::Composed{<:Tuple}
+    composel(ts::Bijector{N}...)::Composed{<:Tuple}
+    composer(ts::Bijector{N}...)::Composed{<:Tuple}
 
 A `Bijector` representing composition of bijectors. `composel` and `composer` results in a
 `Composed` for which application occurs from left-to-right and right-to-left, respectively.
