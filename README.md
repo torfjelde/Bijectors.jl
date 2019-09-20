@@ -619,55 +619,6 @@ julia> 0 ≤ y[2] ≤ 1
 true
 ```
 
-Similarily to the multivariate ADVI example, we could use `Stacked` to get a _bounded_ flow:
-
-```julia
-julia> d = MvNormal(zeros(2), ones(2));
-
-julia> ibs = inv.(bijector.((InverseGamma(2, 3), Beta())));
-
-julia> sb = stack(ibs...) # == Stacked(ibs) == Stacked(ibs, [i:i for i = 1:length(ibs)]
-Stacked{...}(
-bs: (Exp{Dim=0}(), Inversed{Bijectors.Logit{Float64}, Dim=0}(
-orig: Logit{Float64}(a=0.0, b=1.0)
-)
-)
-ranges: (1:1, 2:2)
-)
-
-
-julia> b = sb ∘ PlanarLayer(2)
-Composed{..., Dim=1}(
-ts: (PlanarLayer{Array{Float64,2}, Array{Float64,1}}(
-w: [-1.05099; 0.502079]
-u: [-0.216248; -0.706424]
-b: [-4.33747]
-)
-, Stacked{...}(
-bs: (Exp{Dim=0}(), Inversed{Bijectors.Logit{Float64}, Dim=0}(
-orig: Logit{Float64}(a=0.0, b=1.0)
-)
-)
-ranges: (1:1, 2:2)
-)
-)
-)
-
-
-julia> td = transformed(d, b);
-
-julia> y = rand(td)
-2-element Array{Float64,1}:
- 1.820810797617946
- 0.348323010969172
-
-julia> 0 < y[1]
-true
-
-julia> 0 ≤ y[2] ≤ 1
-true
-```
-
 Want to fit the flow?
 
 ```julia
@@ -745,7 +696,57 @@ julia> x, y, logjac, logpdf_y = forward(flow) # sample + transform and returns a
 This method is for example useful when computing quantities such as the _expected lower bound (ELBO)_ between this transformed distribution and some other joint density. If no analytical expression is available, we have to approximate the ELBO by a Monte Carlo estimate. But one term in the ELBO is the entropy of the base density, which we _do_ know analytically in this case. Using the analytical expression for the entropy and then using a monte carlo estimate for the rest of the terms in the ELBO gives an estimate with lower variance than if we used the monte carlo estimate for the entire expectation.
 
 
-### Normalizing flows with bounded support
+#### Normalizing flows with bounded support
+Similarily to the multivariate ADVI example, we could use `Stacked` to get a _bounded_ flow:
+
+```julia
+julia> d = MvNormal(zeros(2), ones(2));
+
+julia> ibs = inv.(bijector.((InverseGamma(2, 3), Beta())));
+
+julia> sb = stack(ibs...) # == Stacked(ibs) == Stacked(ibs, [i:i for i = 1:length(ibs)]
+Stacked{...}(
+bs: (Exp{Dim=0}(), Inversed{Bijectors.Logit{Float64}, Dim=0}(
+orig: Logit{Float64}(a=0.0, b=1.0)
+)
+)
+ranges: (1:1, 2:2)
+)
+
+
+julia> b = sb ∘ PlanarLayer(2)
+Composed{..., Dim=1}(
+ts: (PlanarLayer{Array{Float64,2}, Array{Float64,1}}(
+w: [-1.05099; 0.502079]
+u: [-0.216248; -0.706424]
+b: [-4.33747]
+)
+, Stacked{...}(
+bs: (Exp{Dim=0}(), Inversed{Bijectors.Logit{Float64}, Dim=0}(
+orig: Logit{Float64}(a=0.0, b=1.0)
+)
+)
+ranges: (1:1, 2:2)
+)
+)
+)
+
+
+julia> td = transformed(d, b);
+
+julia> y = rand(td)
+2-element Array{Float64,1}:
+ 1.820810797617946
+ 0.348323010969172
+
+julia> 0 < y[1]
+true
+
+julia> 0 ≤ y[2] ≤ 1
+true
+```
+
+In this we could also use Tracker.jl to take gradients, etc.
 
 
 ## Implementing your own `Bijector`
@@ -772,13 +773,12 @@ struct Logit{T<:Real} <: Bijector{0}  # only well-defined bijection for 0-dim in
     b::T
 end
 
+# Could restrict these further to the correct dimensionality, but let's be lazy:
 (b::Logit)(x) = @. logit((x - b.a) / (b.b - b.a))
 (ib::Inversed{<:Logit})(y) = @. (ib.orig.b - ib.orig.a) * logistic(y) + ib.orig.a  # `orig` contains the `Bijector` which was inverted
 
 logabsdetjac(b::Logit, x) = @. - log((x - b.a) * (b.b - x) / (b.b - b.a))
 ```
-
-(Batch computation is not fully supported by all bijectors yet (see issue #35), but is actively worked on. In the particular case of `Logit` there's only one thing that makes sense, which is elementwise application. Therefore we've added `@.` to the implementation above, thus this works for any `AbstractArray{<:Real}`.)
 
 Then
 
