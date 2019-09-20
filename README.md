@@ -931,25 +931,25 @@ The following are the bijectors available:
 - Concrete:
   - `Composed`: represents a composition of bijectors.
   - `Stacked`: stacks univariate and multivariate bijectors
-  - `Identity`: does what it says, i.e. nothing.
+  - `Identity{N}`: does what it says, i.e. nothing.
   - `Logit`
-  - `Exp`
-  - `Log`
-  - `Scale`: scaling by scalar value, though at the moment only well-defined `logabsdetjac` for univariate. 
-  - `Shift`: shifts by a scalar value.
+  - `Exp{N}`
+  - `Log{N}`
+  - `Scale{T, N}`: scaling by scalar value, though at the moment only well-defined `logabsdetjac` for univariate. 
+  - `Shift{T, N}`: shifts by a scalar value.
   - `SimplexBijector`: mostly used as the constrained-to-unconstrained bijector for `SimplexDistribution`, e.g. `Dirichlet`.
   - `PlanarLayer`: §4.1 Eq. (10) in [1]
   - `RadialLayer`: §4.1 Eq. (14) in [1]
 
 The distribution interface consists of:
-- `TransformedDistribution <: Distribution`: implements the `Distribution` interface from Distributions.jl. This means `rand` and `logpdf` are provided at the moment.
+- `TransformedDistribution<:Distribution`: implements the `Distribution` interface from Distributions.jl. This means `rand` and `logpdf` are provided at the moment.
 
 #### Methods
 The following methods are implemented by all subtypes of `Bijector`, this also includes bijectors such as `Composed`.
 - `(b::Bijector)(x)`: implements the transform of the `Bijector`
-- `inv(b::Bijector)`: returns the inverse of `b`, i.e. `ib::Bijector` s.t. `(ib ∘ b)(x) ≈ x`. In most cases this is `Inversed{<:Bijector}`.
-- `logabsdetjac(b::Bijector, x)`: computes log(abs(det(jacobian(b, x)))).
-- `forward(b::Bijector, x)`: returns named tuple `(rv=b(x), logabsdetjac=logabsdetjac(b, x))` in the most efficient manner.
+- `inv(b::Bijector)`: returns the inverse of `b`, i.e. `ib::Bijector` s.t. `(ib ∘ b)(x) ≈ x`. In _most_ cases this is `Inversed{<:Bijector}`.
+- `logabsdetjac(b::Bijector, x)`: computes `log(abs(det(jacobian(b, x))))`.
+- `forward(b::Bijector, x)`: returns `(rv=b(x), logabsdetjac=logabsdetjac(b, x))` in the most efficient manner.
 - `∘`, `composel`, `composer`: convenient and type-safe constructors for `Composed`. `composel(bs...)` composes s.t. the resulting composition is evaluated left-to-right, while `composer(bs...)` is evaluated right-to-left. `∘` is right-to-left, as excepted from standard mathematical notation.
 - `jacobian(b::Bijector, x)` [OPTIONAL]: returns the jacobian of the transformation. In some cases the analytical jacobian has been implemented for efficiency.
 
@@ -958,6 +958,7 @@ For `TransformedDistribution`, together with default implementations for `Distri
 - `transformed(d::Distribution)`, `transformed(d::Distribution, b::Bijector)`: constructs a `TransformedDistribution` from `d` and `b`.
 - `logpdf_forward(d::Distribution, x)`, `logpdf_forward(d::Distribution, x, logjac)`: computes the `logpdf(td, td.transform(x))` using the forward pass, which is potentially faster depending on the transform at hand.
 - `forward(d::Distribution)`: returns `(x = rand(dist), y = b(x), logabsdetjac = logabsdetjac(b, x), logpdf = logpdf_forward(td, x))` where `b = td.transform`. This combines sampling from base distribution and transforming into one function. The intention is that this entire process should be performed in the most efficient manner, e.g. the `logabsdetjac(b, x)` call might instead be implemented as `- logabsdetjac(inv(b), b(x))` depending on which is most efficient.
+- `entropy(d::TransformedDistribution)`: entropy is invariant under push-forward so it's just a proxy for the entropy of the underlying `Distribution`.
 
 # Bibliography
 1. Rezende, D. J., & Mohamed, S. (2015). Variational Inference With Normalizing Flows. [arXiv:1505.05770](https://arxiv.org/abs/1505.05770v6).
