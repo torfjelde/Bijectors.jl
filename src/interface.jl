@@ -169,6 +169,28 @@ Just an alias for `logabsdetjac(inv(b), y)`.
 """
 logabsdetjacinv(b::Bijector, y) = logabsdetjac(inv(b), y)
 
+############
+# Identity #
+############
+struct Identity{N} <: Bijector{N} end
+(::Identity)(x) = x
+inv(b::Identity) = b
+
+logabsdetjac(::Identity, x::Real) = zero(eltype(x))
+@generated function logabsdetjac(
+    b::Identity{N1},
+    x::AbstractArray{T2, N2}
+) where {N1, T2, N2}
+    if N1 == N2
+        return :(zero(eltype(x)))
+    elseif N1 + 1 == N2
+        return :(zeros(eltype(x), size(x, $N2)))
+    else
+        return :(throw(MethodError(logabsdetjac, (b, x))))
+    end
+end
+
+
 ###############
 # Composition #
 ###############
@@ -246,6 +268,10 @@ composer(ts::Bijector{N}...) where {N} = Composed(reverse(ts))
     end
 end
 
+∘(b1::Composed, b2::Bijector) = composel(b2, b1.ts...)
+∘(b1::Bijector, b2::Composed) = composel(b2.ts..., b1)
+∘(b1::Composed, b2::Composed) = composel(b2.ts..., b1.ts...)
+
 inv(ct::Composed) = composer(map(inv, ct.ts)...)
 
 # # TODO: should arrays also be using recursive implementation instead?
@@ -273,25 +299,18 @@ function _logabsdetjac(x, b1::Bijector, bs::Bijector...)
 end
 logabsdetjac(cb::Composed, x) = _logabsdetjac(x, cb.ts...)
 
-# Recursive implementation of `forward`
-# NOTE: we need this one in the case where `length(cb.ts) == 2`
-# in which case forward(...) immediately calls `_forward(::NamedTuple, b::Bijector)`
-function _forward(f::NamedTuple, b::Bijector)
-    y, logjac = forward(b, f.rv)
-    return (rv=y, logabsdetjac=logjac + f.logabsdetjac)
+@generated function forward(cb::Composed{T}, x) where {T<:Tuple}
+    expr = Expr(:block)
+    push!(expr.args, :((y, logjac) = forward(cb.ts[1], x)))
+    for i = 2:length(T.parameters)
+        push!(expr.args, :(res = forward(cb.ts[$i], y)))
+        push!(expr.args, :(y = res.rv))
+        push!(expr.args, :(logjac += res.logabsdetjac))
+    end
+    push!(expr.args, :(return (rv = y, logabsdetjac = logjac)))
+
+    return expr
 end
-function _forward(f::NamedTuple, b1::Bijector, b2::Bijector)
-    f1 = forward(b1, f.rv)
-    f2 = forward(b2, f1.rv)
-    return (rv=f2.rv, logabsdetjac=f2.logabsdetjac + f1.logabsdetjac + f.logabsdetjac)
-end
-function _forward(f::NamedTuple, b::Bijector, bs::Bijector...)
-    f1 = forward(b, f.rv)
-    f_ = (rv=f1.rv, logabsdetjac=f1.logabsdetjac + f.logabsdetjac)
-    return _forward(f_, bs...)
-end
-_forward(x, b::Bijector, bs::Bijector...) = _forward(forward(b, x), bs...)
-forward(cb::Composed{<:Tuple}, x) = _forward(x, cb.ts...)
 
 function forward(cb::Composed, x)
     rv, logjac = forward(cb.ts[1], x)
@@ -304,9 +323,48 @@ function forward(cb::Composed, x)
     return (rv=rv, logabsdetjac=logjac)
 end
 
--###########
--# Stacked #
--###########
+# Some compositional rules
+∘(b1::B, b2::Inversed{B}) where {N, B<:Bijector{N}} = Identity{N}()
+∘(b1::Inversed{B}, b2::B) where {N, B<:Bijector{N}} = Identity{N}()
+
+# Can also implement on case-by-case basis where we don't use `Inversed`
+macro inverses(B1, B2)
+    expr = Expr(:block)
+    push!(expr.args, :(
+        function Base.:∘(b1::$B1, b2::$B2)
+        N1 = dimension(b1)
+        N2 = dimension(b2)
+        if N1 != N2
+        throw(DimensionMismatch("$(typeof(b1)) expects $(N1)-dim but $(typeof(b2)) expects $(N2)-dim"))
+        else
+        return Identity{dimension(b1)}()
+        end
+        end
+    ))
+    push!(expr.args, :(
+        function Base.:∘(b1::$B2, b2::$B1)
+        N1 = dimension(b1)
+        N2 = dimension(b2)
+        if N1 != N2
+        throw(DimensionMismatch("$(typeof(b1)) expects $(N1)-dim but $(typeof(b2)) expects $(N2)-dim"))
+        else
+        return Identity{dimension(b1)}()
+        end
+        end
+    ))
+    # push!(expr.args, :(Base.:∘(b1::$B1, b2::$B2) = Identity{dimension(b1)}()))
+    # push!(expr.args, :(Base.:∘(b1::$B2, b2::$B1) = Identity{dimension(b1)}()))
+    return expr
+end
+
+# And these
+∘(::Identity{N}, ::Identity{N}) where {N} = Identity{}()
+∘(::Identity, b::Bijector) = b
+∘(b::Bijector, ::Identity) = b
+
+###########
+# Stacked #
+###########
 const ZeroOrOneDimBijector = Union{Bijector{0}, Bijector{1}}
 
 """
@@ -459,28 +517,6 @@ function forward(sb::Stacked{<:AbstractArray, N}, x::AbstractVector) where {N}
     return (rv = vcat(ys...), logabsdetjac = sum(logjacs))
 end
 
-##############################
-# Example bijector: Identity #
-##############################
-
-struct Identity{N} <: Bijector{N} end
-(::Identity)(x) = x
-inv(b::Identity) = b
-
-logabsdetjac(::Identity, x::Real) = zero(eltype(x))
-@generated function logabsdetjac(
-    b::Identity{N1},
-    x::AbstractArray{T2, N2}
-) where {N1, T2, N2}
-    if N1 == N2
-        return :(zero(eltype(x)))
-    elseif N1 + 1 == N2
-        return :(zeros(eltype(x), size(x, $N2)))
-    else
-        return :(throw(MethodError(logabsdetjac, (b, x))))
-    end
-end
-
 ###############################
 # Example: Logit and Logistic #
 ###############################
@@ -502,6 +538,8 @@ logabsdetjac(b::Logit{<:Real}, x) = @. - log((x - b.a) * (b.b - x) / (b.b - b.a)
 
 struct Exp{N} <: Bijector{N} end
 struct Log{N} <: Bijector{N} end
+
+@inverses Log Exp
 
 Exp() = Exp{0}()
 Log() = Log{0}()

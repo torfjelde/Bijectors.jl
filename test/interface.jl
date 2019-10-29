@@ -247,6 +247,10 @@ contains(predicate::Function, b::Stacked) = any(contains.(predicate, b.bs))
 
         @testset "Composition" begin
             @test_throws DimensionMismatch (Exp{1}() ∘ Log{0}())
+
+            b = Exp()
+            @test Identity{0}() ∘ b == b
+            @test b ∘ Identity{0}() == b
         end
 
         @testset "Batch-computation with Tracker.jl" begin
