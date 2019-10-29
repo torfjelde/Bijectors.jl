@@ -5,7 +5,7 @@ using LinearAlgebra
 using ForwardDiff
 using Tracker
 
-using Bijectors: Log, Exp, Shift, Scale, Logit, SimplexBijector
+using Bijectors: Log, Exp, Shift, Scale, Logit, SimplexBijector, Identity
 
 Random.seed!(123)
 
@@ -251,6 +251,7 @@ contains(predicate::Function, b::Stacked) = any(contains.(predicate, b.bs))
             b = Exp()
             @test Identity{0}() ∘ b == b
             @test b ∘ Identity{0}() == b
+            @test b ∘ inv(b) == Identity{0}()
         end
 
         @testset "Batch-computation with Tracker.jl" begin
