@@ -337,7 +337,7 @@ macro inverses(B1, B2)
         if N1 != N2
         throw(DimensionMismatch("$(typeof(b1)) expects $(N1)-dim but $(typeof(b2)) expects $(N2)-dim"))
         else
-        return Identity{dimension(b1)}()
+        return Identity{N1}()
         end
         end
     ))
@@ -348,12 +348,10 @@ macro inverses(B1, B2)
         if N1 != N2
         throw(DimensionMismatch("$(typeof(b1)) expects $(N1)-dim but $(typeof(b2)) expects $(N2)-dim"))
         else
-        return Identity{dimension(b1)}()
+        return Identity{N1}()
         end
         end
     ))
-    # push!(expr.args, :(Base.:∘(b1::$B1, b2::$B2) = Identity{dimension(b1)}()))
-    # push!(expr.args, :(Base.:∘(b1::$B2, b2::$B1) = Identity{dimension(b1)}()))
     return expr
 end
 
