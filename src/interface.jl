@@ -161,6 +161,7 @@ include("bijectors/distribution_bijector.jl")
 # Normalizing flow related
 include("bijectors/planar_layer.jl")
 include("bijectors/radial_layer.jl")
+include("bijectors/coupling_layer.jl")
 
 ##################
 # Other includes #
