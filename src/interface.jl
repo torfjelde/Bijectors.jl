@@ -163,6 +163,8 @@ include("bijectors/planar_layer.jl")
 include("bijectors/radial_layer.jl")
 include("bijectors/coupling_layer.jl")
 
+include("bijectors/rational_quadratic_spline.jl")
+
 ##################
 # Other includes #
 ##################
