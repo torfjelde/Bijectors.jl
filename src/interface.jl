@@ -8,6 +8,8 @@ import Base: inv, ∘
 import Random: AbstractRNG
 import Distributions: logpdf, rand, rand!, _rand!, _logpdf, params
 
+import NNlib # `import` instead of `using` avoid warning of existing identifier (StatsFuns)
+
 #######################################
 # AD stuff "extracted" from Turing.jl #
 #######################################
