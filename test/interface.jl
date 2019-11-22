@@ -271,17 +271,23 @@ end
             b = Scale(param(a))
             lj = logabsdetjac(b, x)
             Tracker.back!(lj)
-            @test Tracker.extract_grad!(b.a) == ForwardDiff.gradient(a -> logabsdetjac(Scale(a), x), a)
+            @test Tracker.extract_grad!(b.a) == ForwardDiff.gradient(a) do a
+                logabsdetjac(Scale(a), x)
+            end
 
             # batch
             lj = logabsdetjac(b, xs)
             Tracker.back!(mean(lj), 1.0)
-            @test Tracker.extract_grad!(b.a) == ForwardDiff.gradient(a -> mean(logabsdetjac(Scale(a), xs)), a)
+            @test Tracker.extract_grad!(b.a) == ForwardDiff.gradient(a) do a
+                mean(logabsdetjac(Scale(a), xs))
+            end
 
             # Forward when doing a composition
             y, logjac = logabsdetjac(b, xs)
             Tracker.back!(mean(logjac), 1.0)
-            @test Tracker.extract_grad!(b.a) == ForwardDiff.gradient(a -> mean(logabsdetjac(Scale(a), xs)), a)
+            @test Tracker.extract_grad!(b.a) == ForwardDiff.gradient(a) do a
+                mean(logabsdetjac(Scale(a), xs))
+            end
         end
 
         @testset "Shift" begin
