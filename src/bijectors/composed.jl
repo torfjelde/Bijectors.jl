@@ -157,6 +157,20 @@ inv(ct::Composed) = Composed(reverse(map(inv, ct.ts)))
     return :(Composed(($(exprs...), )))
 end
 
+Base.:^(b::Bijector, n::Int) = begin
+    if n > 1
+        return Composed(ntuple(i -> b, n))
+    elseif n == 1
+        return b
+    elseif n == 0
+        return Identity()
+    elseif n == -1
+        return inv(b)
+    else
+        return Composed(ntuple(i -> inv(b), n))
+    end
+end
+
 # # TODO: should arrays also be using recursive implementation instead?
 function (cb::Composed{<:AbstractArray{<:Bijector}})(x)
     res = x
