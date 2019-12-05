@@ -157,7 +157,7 @@ inv(ct::Composed) = Composed(reverse(map(inv, ct.ts)))
     return :(Composed(($(exprs...), )))
 end
 
-Base.:^(b::Bijector, n::Int) = begin
+function @inline Base.:^(b::Bijector, n::Int)
     if n > 1
         return Composed(ntuple(i -> b, n))
     elseif n == 1
