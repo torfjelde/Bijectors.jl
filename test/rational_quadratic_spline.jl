@@ -49,21 +49,21 @@ plot!(xs, ys, label="ys", alpha=1, width=1)
 vline!(b.widths, label="knots")
 
 # with a `CouplingLayer`
-d = 2
+dim = 2
 
 function bijector_from_array(θ)
     i = 0
-    widths = Bijectors.Unconstrained(reshape(θ[i + 1:i + d * knots], (knots, d)))
-    i += knots * d
+    widths = Bijectors.Unconstrained(reshape(θ[i + 1:i + d * knots], (knots, dim)))
+    i += knots * dim
     
-    heights = Bijectors.Unconstrained(reshape(θ[i + 1:i + d * knots], (knots, d)))
-    i += d * knots
-    derivatives = Bijectors.Unconstrained(reshape(θ[i + 1:end], (knots - 1, d)))
+    heights = Bijectors.Unconstrained(reshape(θ[i + 1:i + d * knots], (knots, dim)))
+    i += dim * knots
+    derivatives = Bijectors.Unconstrained(reshape(θ[i + 1:end], (knots - 1, dim)))
 
     b = RationalQuadraticSpline(widths, heights, derivatives, B)
 end
 
-θ = randn((3 * knots - 1) * d)
+θ = randn((3 * knots - 1) * dim)
 b = bijector_from_array(θ)
 
 b(ones(2))
@@ -83,13 +83,13 @@ cumsum(w_normed; dims=1)
 ### Trying it out
 # TODO: Considering whether or not to drop the `vcat` call in the constructor of `RationalQuadraticSpline`,
 # in which case we have to do some work to make sure we're not needlessly restricting functionality :/
-θ = randn((3 * knots - 1) * d)
+θ = randn((3 * knots - 1) * dim)
 i = 0
-widths = Bijectors.Unconstrained(reshape(θ[i + 1:i + d * knots], (knots, d)))
-i += knots * d
-heights = Bijectors.Unconstrained(reshape(θ[i + 1:i + d * knots], (knots, d)))
-i += d * knots
-derivatives = Bijectors.Unconstrained(reshape(θ[i + 1:end], (knots - 1, d)))
+widths = Bijectors.Unconstrained(reshape(θ[i + 1:i + dim * knots], (knots, dim)))
+i += knots * dim
+heights = Bijectors.Unconstrained(reshape(θ[i + 1:i + dim * knots], (knots, dim)))
+i += dim * knots
+derivatives = Bijectors.Unconstrained(reshape(θ[i + 1:end], (knots - 1, dim)))
 
 w = 2 * B * (cumsum(NNlib.softmax(values(widths)); dims=1) .- 0.5)
 h = 2 * B * (cumsum(NNlib.softmax(values(heights)); dims=1) .- 0.5)
@@ -116,13 +116,14 @@ w = (k == 1) ? widths[k + 1] + widths[end] : widths[k + 1] - widths[k]
 Δy = (k == 1) ? heights[k + 1] + heights[end] : heights[k + 1] - heights[k]
 
 function rqs_univariate_new(widths, heights, derivatives, x::Real)
+    T = promote_type(eltype(widths), eltype(heights), eltype(derivatives), eltype(x))
+    
     # We're working on [-B, B] and `widths[end]` is `B`
     if (x ≤ -widths[end]) || (x ≥ widths[end])
         return x
     end
     
     K = length(widths)
-    # @assert K == length(x) "length(x) should be the same length as the widhts/heights"
 
     # Find which bin `x` is in; subtract 1 because `searchsortedfirst` returns idx of ≥ not ≤
     k = searchsortedfirst(widths, x) - 1
@@ -139,14 +140,33 @@ function rqs_univariate_new(widths, heights, derivatives, x::Real)
     s = Δy / w
     ξ = (x - wₖ) / w
 
+    # Derivatives at knot-points
+    # Note that we have (K - 1) knot-points, not K
+    dₖ = (k == 0) ? one(T) : derivatives[k]
+    dₖ₊₁ = (k == K - 1) ? one(T) : derivatives[k + 1]
+
     # Eq. (14)
-    dₖ = (k == 0) ? 1. : derivatives[k]
     numerator = Δy * (s * ξ^2 + dₖ * ξ * (1 - ξ))
-    denominator = s + (derivatives[k + 1] + dₖ - 2s) * ξ * (1 - ξ)
+    denominator = s + (dₖ₊₁ + dₖ - 2s) * ξ * (1 - ξ)
     g = hₖ + numerator / denominator
+
+    @info k w Δy s ξ numerator denominator
 
     return g
 end
+
+x = [-B + 2, 1.0]
+
+b = RationalQuadraticSpline(widths, heights, derivatives, B)
+b(x)
+
+rqs_univariate_new.(eachcol((w)), eachcol((h)), eachcol((d)), x)
+
+w_single = Float32.(w[:, 1])
+h_single = Float32.(h[:, 1])
+d_single = Float32.(d[:, 1])
+x = Float32(1.)
+@code_typed rqs_univariate_new(w_single, h_single, d_single, x)
 
 w = 2 * B * (cumsum(NNlib.softmax(values(widths)); dims=1) .- 0.5)
 h = 2 * B * (cumsum(NNlib.softmax(values(heights)); dims=1) .- 0.5)
@@ -169,3 +189,82 @@ x = -20.
 @test rqs_univariate_new(w, h, d, x) ≈ b(x)
 x = 20.
 @test rqs_univariate_new(w, h, d, x) ≈ b(x)
+
+####################
+# TESTING NEW IMPL #
+####################
+using Test
+
+using Bijectors
+using Bijectors: RationalQuadraticSpline
+
+B = 10
+knots = 10
+dims = 2
+
+# Improving the `Unconstrained` constructor
+import NNlib
+
+### Trying it out
+# TODO: Considering whether or not to drop the `vcat` call in the constructor of `RationalQuadraticSpline`,
+# in which case we have to do some work to make sure we're not needlessly restricting functionality :/
+θ = randn((3 * knots - 1) * dims)
+i = 0
+widths = Bijectors.Unconstrained(reshape(θ[i + 1:i + dims * knots], (knots, dims)))
+i += knots * dims
+heights = Bijectors.Unconstrained(reshape(θ[i + 1:i + dims * knots], (knots, dims)))
+i += dims * knots
+derivatives = Bijectors.Unconstrained(reshape(θ[i + 1:end], (knots - 1, dims)))
+
+w = 2 * B * (cumsum(NNlib.softmax(values(widths)); dims=1) .- 0.5)
+h = 2 * B * (cumsum(NNlib.softmax(values(heights)); dims=1) .- 0.5)
+d = NNlib.softplus.(values(derivatives))
+
+function rqs_univariate_new(widths, heights, derivatives, x::Real)
+    T = promote_type(eltype(widths), eltype(heights), eltype(derivatives), eltype(x))
+    
+    # We're working on [-B, B] and `widths[end]` is `B`
+    if (x ≤ -widths[end]) || (x ≥ widths[end])
+        return x
+    end
+    
+    K = length(widths)
+
+    # Find which bin `x` is in; subtract 1 because `searchsortedfirst` returns idx of ≥ not ≤
+    k = searchsortedfirst(widths, x) - 1
+
+    # Width
+    # If k == 0 then we should put it in the bin `[-B, widths[1]]`
+    wₖ = (k == 0) ? -widths[end] : widths[k]
+    w = widths[k + 1] - wₖ
+
+    # Slope
+    hₖ = (k == 0) ? -heights[end] : heights[k]
+    Δy = heights[k + 1] - hₖ
+
+    s = Δy / w
+    ξ = (x - wₖ) / w
+
+    # Derivatives at knot-points
+    # Note that we have (K - 1) knot-points, not K
+    dₖ = (k == 0) ? one(T) : derivatives[k]
+    dₖ₊₁ = (k == K - 1) ? one(T) : derivatives[k + 1]
+
+    # Eq. (14)
+    numerator = Δy * (s * ξ^2 + dₖ * ξ * (1 - ξ))
+    denominator = s + (dₖ₊₁ + dₖ - 2s) * ξ * (1 - ξ)
+    g = hₖ + numerator / denominator
+
+    @info k w Δy s ξ numerator denominator
+
+    return g
+end
+
+x = [-B + 2, 1.0]
+
+b = RationalQuadraticSpline(widths, heights, derivatives, B)
+b.derivatives
+b(x)
+
+rqs_univariate_new.(eachcol((w)), eachcol((h)), eachcol((d)), x)
+d

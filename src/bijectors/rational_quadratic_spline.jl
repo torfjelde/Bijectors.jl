@@ -99,6 +99,8 @@ function rqs_univariate(widths, heights, derivatives, x::Real)
     denominator = s + (derivatives[k + 1] + derivatives[k] - 2s) * ξ * (1 - ξ)
     g = heights[k] + numerator / denominator
 
+    @info k w Δy s ξ numerator denominator
+
     return g
 end
 # univariate
@@ -108,8 +110,8 @@ end
 # multivariate
 function (b::RationalQuadraticSpline{<:AbstractMatrix, 1})(x::AbstractVector)
     @assert length(x) == size(b.widths, 2) == size(b.heights, 2) == size(b.derivatives, 2)
-    
-    return [rqs_univariate(b.widths[:, i], b.heights[:, i], b.derivatives[:, i], x[i]) for i = 1:length(x)]
+
+    return rqs_univariate.(eachcol(b.widths), eachcol(b.heights), eachcol(b.derivatives), x)
 end
 function (b::RationalQuadraticSpline{<:AbstractMatrix, 1})(x::AbstractMatrix)
     return foldl(hcat, [b(x[:, i]) for i = 1:size(x, 2)])
