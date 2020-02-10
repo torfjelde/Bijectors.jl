@@ -3,11 +3,11 @@ using NNlib
 abstract type Constrained end
 
 """
-    value(c::Constrained)
+    values(c::Constrained)
 
 Return the value which is wrapped.
 """
-value(c::Constrained)
+values(c::Constrained)
 
 struct Unconstrained{T, F} <: Constrained
     val::T
@@ -15,7 +15,7 @@ end
 Unconstrained(val::T, f) where {T} = Unconstrained{T, f}(val)
 Unconstrained(val::T) where {T} = Unconstrained{T, identity}(val)
 
-value(c::Unconstrained{T, F}) where {T, F} = F(c.val)
+Base.values(c::Unconstrained{T, F}) where {T, F} = F(c.val)
 f(::Unconstrained{T, F}) where {T, F} = F
 
 
@@ -27,7 +27,7 @@ struct RationalQuadraticSpline{T, D} <: Bijector{D}
     function RationalQuadraticSpline(widths::T, heights::T, derivatives::T) where {T<:AbstractVector}
         # FIXME: add a `NoArgCheck` type and argument so we can circumvent if we want
         
-        @assert length(widths) == length(heights) == length(derivatives)
+        @assert length(widths) == length(heights) == length(derivatives) "widths $(length(widths)) ≠ heights $(length(heights)) ≠ $(length(derivatives))"
         # @assert all(widths .> 0) "widths need to be positive"
         # @assert all(heights .> 0) "heights need to be positive"
         # @assert widths[1] ≈ heights[1] "widths and heights need equal left endpoint"
@@ -51,9 +51,9 @@ function RationalQuadraticSpline(
 ) where {T1, T2, A <: AbstractVector{T1}}
     # Using `NNLlinb.softax` instead of `StatsFuns.softmax` (which does inplace operations)
     return RationalQuadraticSpline(
-        (cumsum(vcat([zero(T1)], NNlib.softmax(value(widths)))) .- 0.5) * 2 * B,
-        (cumsum(vcat([zero(T1)], NNlib.softmax(value(heights)))) .- 0.5) * 2 * B,
-        vcat([one(T1)], softplus.(value(derivatives)), [one(T1)])
+        (cumsum(vcat([zero(T1)], NNlib.softmax(values(widths)))) .- 0.5) * 2 * B,
+        (cumsum(vcat([zero(T1)], NNlib.softmax(values(heights)))) .- 0.5) * 2 * B,
+        vcat([one(T1)], softplus.(values(derivatives)), [one(T1)])
     )
 end
 
@@ -68,9 +68,9 @@ function RationalQuadraticSpline(
     
     # Using `NNLlinb.softax` instead of `StatsFuns.softmax` (which does inplace operations)
     return RationalQuadraticSpline(
-        hcat([(cumsum(vcat([zero(T1)], NNlib.softmax(value(widths)[:, i]))) .- 0.5) * 2 * B for i = 1:size(value(widths), 2)]...),
-        hcat([(cumsum(vcat([zero(T1)], NNlib.softmax(value(heights)[:, i]))) .- 0.5) * 2 * B for i = 1:size(value(heights), 2)]...),
-        hcat([vcat([one(T1)], softplus.(value(derivatives)[:, i]), [one(T1)]) for i = 1:size(value(derivatives), 2)]...)
+        hcat([(cumsum(vcat([zero(T1)], NNlib.softmax(values(widths)[:, i]))) .- 0.5) * 2 * B for i = 1:size(values(widths), 2)]...),
+        hcat([(cumsum(vcat([zero(T1)], NNlib.softmax(values(heights)[:, i]))) .- 0.5) * 2 * B for i = 1:size(values(heights), 2)]...),
+        hcat([vcat([one(T1)], softplus.(values(derivatives)[:, i]), [one(T1)]) for i = 1:size(values(derivatives), 2)]...)
     )
 end
 
