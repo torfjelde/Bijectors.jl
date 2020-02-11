@@ -24,10 +24,10 @@ struct RationalQuadraticSpline{T, D} <: Bijector{D}
     end
 end
 
-function RationalQuadraticSpline(widths::A, heights::A, derivatives::A, B::Real) where {A<:AbstractVecOrMat}
+function RationalQuadraticSpline(widths::A, heights::A, derivatives::A, B::Union{Real, AbstractVector{<:Real}}) where {A<:AbstractVecOrMat}
     return RationalQuadraticSpline(
-        2 * B * (cumsum(NNlib.softmax(values(widths)); dims=1) .- 0.5),
-        2 * B * (cumsum(NNlib.softmax(values(heights)); dims=1) .- 0.5),
+        2 * B .* (cumsum(NNlib.softmax(values(widths)); dims=1) .- 0.5),
+        2 * B .* (cumsum(NNlib.softmax(values(heights)); dims=1) .- 0.5),
         NNlib.softplus.(values(derivatives))
     )
 end
