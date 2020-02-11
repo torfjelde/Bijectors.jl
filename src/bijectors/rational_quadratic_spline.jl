@@ -32,7 +32,7 @@ function RationalQuadraticSpline(widths::A, heights::A, derivatives::A, B::Union
     )
 end
 
-function rqs_univariate(widths, heights, derivatives, x::Real)
+function rqs_univariate(widths::AbstractVector, heights::AbstractVector, derivatives::AbstractVector, x::Real)
     T = promote_type(eltype(widths), eltype(heights), eltype(derivatives), eltype(x))
 
     # We're working on [-B, B] and `widths[end]` is `B`
@@ -86,7 +86,7 @@ function (b::RationalQuadraticSpline{<:AbstractMatrix, 1})(x::AbstractMatrix)
     return foldl(hcat, [b(x[:, i]) for i = 1:size(x, 2)])
 end
 
-function rqs_univariate_inverse(widths, heights, derivatives, y::Real)
+function rqs_univariate_inverse(widths::AbstractVector, heights::AbstractVector, derivatives::AbstractVector, y::Real)
     T = promote_type(eltype(widths), eltype(heights), eltype(derivatives), eltype(y))
 
     if (y ≤ -heights[end]) || (y ≥ heights[end])
