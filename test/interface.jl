@@ -358,6 +358,12 @@ end
     @test inv(b)(y) ≈ x
     @test logabsdetjac(b, x) ≈ logpdf_with_trans(d, x, false) - logpdf_with_trans(d, x, true)
 
+    xs = rand(d, 2)
+    ys = b(xs)
+    @test ys ≈ link(d, xs)
+    @test inv(b)(ys) ≈ xs
+    @test logabsdetjac(b, xs) ≈ logpdf_with_trans(d, xs, false) - logpdf_with_trans(d, xs, true)
+
     d = truncated(Normal(), -Inf, 1)
     b = bijector(d)
     x = rand(d)
@@ -366,6 +372,12 @@ end
     @test inv(b)(y) ≈ x
     @test logabsdetjac(b, x) ≈ logpdf_with_trans(d, x, false) - logpdf_with_trans(d, x, true)
 
+    xs = rand(d, 2)
+    ys = b(xs)
+    @test ys ≈ link(d, xs)
+    @test inv(b)(ys) ≈ xs
+    @test logabsdetjac(b, xs) ≈ logpdf_with_trans(d, xs, false) - logpdf_with_trans(d, xs, true)
+
     d = truncated(Normal(), 1, Inf)
     b = bijector(d)
     x = rand(d)
@@ -373,6 +385,12 @@ end
     @test y ≈ link(d, x)
     @test inv(b)(y) ≈ x
     @test logabsdetjac(b, x) ≈ logpdf_with_trans(d, x, false) - logpdf_with_trans(d, x, true)
+
+    xs = rand(d, 2)
+    ys = b(xs)
+    @test ys ≈ link(d, xs)
+    @test inv(b)(ys) ≈ xs
+    @test logabsdetjac(b, xs) ≈ logpdf_with_trans(d, xs, false) - logpdf_with_trans(d, xs, true)
 end
 
 @testset "Multivariate" begin
