@@ -104,6 +104,65 @@ Just an alias for `logabsdetjac(inv(b), y)`.
 """
 logabsdetjacinv(b::Bijector, y) = logabsdetjac(inv(b), y)
 
+"""
+    transform(b::Bijector, x)
+
+Transforms `x` using the bijector `b`.
+"""
+function transform end
+
+#####################
+# Mutating versions #
+#####################
+"""
+    transform!(b::Bijector, x, out)
+
+Transforms `x` using the bijector `b`, and does so by storing the result in `out`.
+"""
+function transform!(b::Bijector, x::T, out::T) where {T<:AbstractArray}
+    out .= transform(b, x)
+end
+
+"""
+    logabsdetjac!(b::Bijector, x, out)
+
+Computes `logabsdetjac(b, x)` in-place, storing the result in `out`.
+"""
+function logabsdetjac!(b::Bijector, x::T, out::T) where {T<:AbstractArray}
+    out .= logabsdetjac(b, x)
+end
+
+###########################
+# Default implementations #
+###########################
+transform(b::Bijector{0}, x::AbstractArray{<:Real}) = transform.(b, x)
+transform(b::Bijector{1}, x::AbstractMatrix{<:Real}) = map(b, eachcol(x))
+transform(b::Bijector{2}, x::AbstractArray{<:AbstractMatrix{<:Real}}) = map(b, x)
+
+logabsdetjac(b::Bijector{0}, x::AbstractArray{<:Real}) = logabsdetjac.(b, x)
+logabsdetjac(b::Bijector{1}, x::AbstractMatrix{<:Real}) = map(eachcol(x)) do x
+    logabsdetjac(b, x)
+end
+logabsdetjac(b::Bijector{2}, x::AbstractArray{<:AbstractMatrix{<:Real}}) = map(x) do x
+    logabsdetjac(b, x)
+end
+
+function transform!(b::Bijector{0}, x::AbstractVector{<:Real}, out::AbstractVector{<:Real})
+    @assert length(x) == length(out)
+    @inbounds for i = 1:length(x)
+        out[i] = b(x[i])
+    end
+    return out
+end
+
+function transform!(b::Bijector{1}, x::AbstractMatrix{<:Real}, out::AbstractMatrix{<:Real})
+    @assert size(x) == size(out)
+    @inbounds for i = 1:size(x, 2)
+        transform!(b, view(x, :, i), view(out, :, i))
+    end
+    return out
+end
+
 ##############################
 # Example bijector: Identity #
 ##############################
@@ -136,6 +195,8 @@ const ZeroOrOneDimBijector = Union{Bijector{0}, Bijector{1}}
 ######################
 # Bijectors includes #
 ######################
+include("macros.jl")
+
 # General
 include("bijectors/adbijector.jl")
 include("bijectors/composed.jl")
