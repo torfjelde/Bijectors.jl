@@ -53,7 +53,7 @@ end
 # end
 
 """
-    @bijector function forward(b::Bijector, x) ... end
+    @bijector function f(b::Bijector, x) ... end
 
 Takes the method `forward` and uses it to define both `transform`
 and `logabsdetjac`, while ensuring that any shared computation is
@@ -63,6 +63,21 @@ macro bijector(expr)
     def = MacroTools.splitdef(expr)
     body = def[:body]
     args = def[:args]
+    whereparams = def[:whereparams]
+
+    # extract the input variables
+    bijector_arg, input_arg = args
+
+    # Define the `(b::Bijector)(x::T)` signature
+    bijector_call_expr = if !isempty(whereparams)
+        quote
+            ($bijector_arg)($input_arg) where {$whereparams...} = $(Bijectors).transform($bijector_arg, $input_arg)
+        end
+    else
+        quote
+            ($bijector_arg)($input_arg) = $(Bijectors).transform($bijector_arg, $input_arg)
+        end
+    end
 
     # Figure out what is shared, and what isn't
     shared_exprs = [] # beginning of `forward`
@@ -71,23 +86,6 @@ macro bijector(expr)
     tail_exprs = [] # goes at the end of `forward`
 
     for expr in body.args
-        # # When using `@transform` and `@logabsdetjac`
-        # # Check if we're still sharing
-        # if Meta.isexpr(expr, :(=)) && Meta.isexpr(expr.args[2], :macrocall)
-        #     e = expr.args[2]
-        #     if length(e.args) == 3
-        #         if e.args[1] === Symbol("@transform")
-        #             push!(transform_exprs, Expr(:return, e.args[3]))
-        #             expr.args[2] = e.args[3]
-        #             push!(tail_exprs, expr)
-        #         elseif e.args[1] === Symbol("@logabsdetjac")
-        #             push!(logjac_exprs, Expr(:return, e.args[3]))
-        #             expr.args[2] = e.args[3]
-        #             push!(tail_exprs, expr)
-        #         end
-        #     end
-        # end
-
         # When using `rv = ...` and `logabsdetjac = ...`
         if Meta.isexpr(expr, :(=)) && expr.args[1] == :rv
             push!(transform_exprs, Expr(:return, expr.args[2]))
@@ -116,10 +114,16 @@ macro bijector(expr)
     # Remove the redundant macro's from the `forward` body
     forward_full_exprs = vcat(shared_exprs, tail_exprs)
 
-    return quote
-        $(Bijectors).@deftransform function $(Bijectors).transform($(args...))
+    push!(forward_full_exprs, Expr(:return, :(rv = rv, logabsdetjac = logabsdetjac)))
+
+    # HACK: `esc` because the types of the arguments are getting the namespace of `Bijectors`
+    # because this is the namespace it's expanded in. Not sure how if `esc` everything is
+    # the best solution.
+    return esc(quote
+        function $(Bijectors).transform($(args...))
             $(transform_full_exprs...)
         end
+        $bijector_call_expr
 
         function $(Bijectors).logabsdetjac($(args...))
             $(logjac_full_exprs...)
@@ -128,6 +132,6 @@ macro bijector(expr)
         function $(Bijectors).forward($(args...))
             $(forward_full_exprs...)
         end
-    end
+    end)
 end
 
